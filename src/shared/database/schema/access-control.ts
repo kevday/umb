@@ -1,6 +1,7 @@
-import { pgTable, uuid, text, timestamp, integer, serial, jsonb, pgEnum, check } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, integer, serial, jsonb, pgEnum, check, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { users } from "./core";
+import { ts } from "./_util";
 
 export const memberStatus = pgEnum("member_status", ["regular", "debito", "licenciado", "suspenso", "eliminado", "falecido"]);
 
@@ -16,27 +17,64 @@ export const lodges = pgTable("lodges", {
   number: integer("number"),
 });
 
-export const institutionalMemberships = pgTable("institutional_memberships", {
+export const institutionalMemberships = pgTable(
+  "institutional_memberships",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    lodgeId: uuid("lodge_id").notNull().references(() => lodges.id),
+    status: memberStatus("status").notNull().default("regular"),
+    startsAt: ts("starts_at").defaultNow().notNull(),
+    endsAt: ts("ends_at"),
+  },
+  (t) => [uniqueIndex("one_active_membership").on(t.userId).where(sql`${t.endsAt} is null`)],
+);
+
+export const invitations = pgTable("invitations", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  lodgeId: uuid("lodge_id").notNull().references(() => lodges.id),
+  email: text("email").notNull(),
+  intendedDegree: integer("intended_degree").notNull(),
+  tokenHash: text("token_hash").notNull().unique(),
+  createdBy: uuid("created_by").notNull().references(() => users.id),
+  approvedBy: uuid("approved_by").references(() => users.id),
+  expiresAt: ts("expires_at").notNull(),
+  usedAt: ts("used_at"),
+  usedBy: uuid("used_by").references(() => users.id),
+  createdAt: ts("created_at").defaultNow().notNull(),
+});
+
+export const degreeRequests = pgTable("degree_requests", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id),
   lodgeId: uuid("lodge_id").notNull().references(() => lodges.id),
-  status: memberStatus("status").notNull().default("regular"),
-  startsAt: timestamp("starts_at").defaultNow().notNull(),
-  endsAt: timestamp("ends_at"),
+  fromDegree: integer("from_degree").notNull(),
+  toDegree: integer("to_degree").notNull(),
+  requestedBy: uuid("requested_by").notNull().references(() => users.id),
+  status: text("status").notNull().default("pendente"),
+  decidedBy: uuid("decided_by").references(() => users.id),
+  decidedAt: ts("decided_at"),
+  justification: text("justification"),
+  createdAt: ts("created_at").defaultNow().notNull(),
 });
 
+/** origin = 'bootstrap' é a única exceção à aprovação dupla (fundador, com evidência auditada). */
 export const degreeAssignments = pgTable(
   "degree_assignments",
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: uuid("user_id").notNull().references(() => users.id),
     degree: integer("degree").notNull(),
+    origin: text("origin").notNull().default("regular"),
     requestedBy: uuid("requested_by").notNull().references(() => users.id),
     approvedBy: uuid("approved_by").notNull().references(() => users.id),
-    at: timestamp("at").defaultNow().notNull(),
+    at: ts("at").defaultNow().notNull(),
   },
   (t) => [
-    check("dual_approval", sql`${t.approvedBy} <> ${t.requestedBy} AND ${t.approvedBy} <> ${t.userId}`),
+    check(
+      "dual_approval",
+      sql`${t.origin} = 'bootstrap' OR (${t.approvedBy} <> ${t.requestedBy} AND ${t.approvedBy} <> ${t.userId})`,
+    ),
   ],
 );
 
@@ -44,16 +82,17 @@ export const officeAssignments = pgTable("office_assignments", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id),
   lodgeId: uuid("lodge_id").references(() => lodges.id),
+  jurisdictionId: uuid("jurisdiction_id").references(() => jurisdictions.id),
   name: text("name").notNull(),
-  startsAt: timestamp("starts_at").notNull(),
-  endsAt: timestamp("ends_at"),
+  startsAt: ts("starts_at").notNull(),
+  endsAt: ts("ends_at"),
   appointedBy: uuid("appointed_by").notNull().references(() => users.id),
 });
 
-/** Append-only: ver database/rls/001_policies.sql */
+/** Append-only (trigger no banco) e encadeada por hash. */
 export const accessAuditLogs = pgTable("access_audit_logs", {
   seq: serial("seq").primaryKey(),
-  at: timestamp("at").defaultNow().notNull(),
+  at: ts("at").notNull(),
   actorId: uuid("actor_id").notNull(),
   action: text("action").notNull(),
   subjectId: uuid("subject_id"),
