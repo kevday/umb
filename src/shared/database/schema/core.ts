@@ -36,6 +36,8 @@ export const userTotp = pgTable("user_totp", {
   userId: uuid("user_id").primaryKey().references(() => users.id),
   secretEnc: text("secret_enc").notNull(),
   confirmedAt: ts("confirmed_at"),
+  /** último passo de 30 s aceito: impede reuso do mesmo código */
+  lastStep: integer("last_step"),
 });
 
 export const emailTokenKind = pgEnum("email_token_kind", ["verify", "reset"]);

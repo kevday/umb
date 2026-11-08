@@ -1,5 +1,5 @@
 {
-  "id": "fb35946f-f9d8-41c7-91ca-1047442f9684",
+  "id": "2c35d2d1-cb1c-4654-ade3-3c1aed340ea2",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "version": "7",
   "dialect": "postgresql",
@@ -1455,6 +1455,12 @@
         "confirmed_at": {
           "name": "confirmed_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_step": {
+          "name": "last_step",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         }

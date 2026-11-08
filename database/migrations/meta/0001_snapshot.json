@@ -1,6 +1,6 @@
 {
-  "id": "13761264-8539-4410-b145-f35d272c6683",
-  "prevId": "fb35946f-f9d8-41c7-91ca-1047442f9684",
+  "id": "8899f00a-3005-4649-b5d1-6953c5b47403",
+  "prevId": "2c35d2d1-cb1c-4654-ade3-3c1aed340ea2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -1455,6 +1455,12 @@
         "confirmed_at": {
           "name": "confirmed_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_step": {
+          "name": "last_step",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         }

@@ -174,7 +174,8 @@ CREATE TABLE "sessions" (
 CREATE TABLE "user_totp" (
 	"user_id" uuid PRIMARY KEY NOT NULL,
 	"secret_enc" text NOT NULL,
-	"confirmed_at" timestamp with time zone
+	"confirmed_at" timestamp with time zone,
+	"last_step" integer
 );
 --> statement-breakpoint
 CREATE TABLE "users" (
