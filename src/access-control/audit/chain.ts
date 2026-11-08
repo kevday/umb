@@ -5,22 +5,43 @@ export interface AuditEntry {
   at: string;
   actorId: string;
   action: string;
-  subjectId?: string;
-  before?: unknown;
-  after?: unknown;
+  subjectId: string | null;
+  payload: unknown;
   prevHash: string;
   hash: string;
 }
 
-const digest = (e: Omit<AuditEntry, "hash">) => createHash("sha256").update(JSON.stringify(e)).digest("hex");
+/** JSON canônico (chaves ordenadas): jsonb do Postgres não preserva a ordem das chaves. */
+export function canon(v: unknown): string {
+  if (v === undefined || v === null) return "null";
+  if (Array.isArray(v)) return `[${v.map(canon).join(",")}]`;
+  if (typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    return `{${Object.keys(o).sort().map((k) => `${JSON.stringify(k)}:${canon(o[k])}`).join(",")}}`;
+  }
+  return JSON.stringify(v);
+}
+
+export const digest = (e: Omit<AuditEntry, "hash">) =>
+  createHash("sha256")
+    .update(canon([e.seq, e.at, e.actorId, e.action, e.subjectId ?? null, e.payload ?? null, e.prevHash]))
+    .digest("hex");
 
 export function append(
   log: readonly AuditEntry[],
-  input: Pick<AuditEntry, "actorId" | "action" | "subjectId" | "before" | "after">,
+  input: { actorId: string; action: string; subjectId?: string | null; payload?: unknown },
   at = new Date(),
 ): AuditEntry[] {
   const prevHash = log.length ? log[log.length - 1].hash : "0";
-  const base = { seq: log.length + 1, at: at.toISOString(), ...input, prevHash };
+  const base = {
+    seq: log.length + 1,
+    at: at.toISOString(),
+    actorId: input.actorId,
+    action: input.action,
+    subjectId: input.subjectId ?? null,
+    payload: input.payload ?? null,
+    prevHash,
+  };
   return [...log, { ...base, hash: digest(base) }];
 }
 

@@ -1,6 +1,6 @@
 export type MemberStatus = "regular" | "debito" | "licenciado" | "suspenso" | "eliminado" | "falecido";
 
-export interface Office { name: string; lodgeId?: string; startsAt: Date; endsAt?: Date }
+export interface Office { name: string; lodgeId?: string; jurisdictionId?: string; startsAt: Date; endsAt?: Date }
 
 export interface Subject {
   id: string;
@@ -18,7 +18,7 @@ export type Rule =
   | { kind: "lodge"; id: string }
   | { kind: "body"; id: string }
   | { kind: "jurisdiction"; id: string }
-  | { kind: "office"; names: string[]; lodgeId?: string }
+  | { kind: "office"; names: string[]; lodgeId?: string; jurisdictionId?: string }
   | { kind: "status"; allowed: MemberStatus[] }
   | { kind: "all"; rules: Rule[] }
   | { kind: "any"; rules: Rule[] };

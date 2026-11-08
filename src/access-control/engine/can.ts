@@ -1,6 +1,6 @@
 import type { Decision, MemberStatus, Resource, Rule, Subject } from "@/contracts/access-control";
 
-const BLOCKED: MemberStatus[] = ["licenciado", "suspenso", "eliminado", "falecido"];
+export const BLOCKED: MemberStatus[] = ["licenciado", "suspenso", "eliminado", "falecido"];
 const deny = (reason: string): Decision => ({ allow: false, reason });
 const allow = (reason: string): Decision => ({ allow: true, reason });
 
@@ -16,7 +16,8 @@ function check(r: Rule, s: Subject, now: Date): boolean {
     case "status": return r.allowed.includes(s.status);
     case "office":
       return s.offices.some(
-        (o) => r.names.includes(o.name) && officeActive(o, now) && (!r.lodgeId || o.lodgeId === r.lodgeId),
+        (o) => r.names.includes(o.name) && officeActive(o, now) && (!r.lodgeId || o.lodgeId === r.lodgeId) &&
+          (!r.jurisdictionId || o.jurisdictionId === r.jurisdictionId),
       );
     case "all": return r.rules.every((x) => check(x, s, now));
     case "any": return r.rules.some((x) => check(x, s, now));
