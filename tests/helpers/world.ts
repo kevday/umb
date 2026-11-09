@@ -2,6 +2,7 @@ import { verifyEmail } from "@/core/auth/service";
 import {
   approveInvitation, bootstrapFounders, createInvitation, registerWithInvitation, type Ctx,
 } from "@/access-control/services/institution";
+import { degreeAssignments } from "@/shared/database/schema";
 import { testDb } from "./db";
 
 export const PW = "senha-de-teste-forte-1";
@@ -20,10 +21,17 @@ export async function world() {
   async function member(o: { name: string; degree: number; lodgeId?: string; inviter?: Ctx; approver?: Ctx }) {
     const lodgeId = o.lodgeId ?? f.lodgeId;
     const email = `${o.name}@teste.org`;
-    const inv = await createInvitation(db, o.inviter ?? B, { lodgeId, email, intendedDegree: o.degree });
-    await approveInvitation(db, o.approver ?? A, inv.invitationId);
+    const inviter = o.inviter ?? B, approver = o.approver ?? A;
+    const inv = await createInvitation(db, inviter, { lodgeId, email, intendedDegree: 1 });
+    await approveInvitation(db, approver, inv.invitationId);
     const r = await registerWithInvitation(db, { token: inv.token, email, username: o.name, fullName: o.name, password: PW });
     await verifyEmail(db, r.verifyToken);
+    // Graus acima do inicial são dados de cenário de teste; produção usa requestDegree/decideDegree.
+    for (let degree = 2; degree <= o.degree; degree++) {
+      await db.insert(degreeAssignments).values({
+        userId: r.userId, degree, requestedBy: inviter.userId, approvedBy: approver.userId,
+      });
+    }
     return r.userId;
   }
   return { db, f, A, B, member };
