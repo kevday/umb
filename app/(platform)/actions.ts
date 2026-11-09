@@ -2,6 +2,7 @@
 import { redirect } from "next/navigation";
 import * as auth from "@/core/auth/service";
 import { Forbidden } from "@/core/errors";
+import { deleteAccount, updateProfile } from "@/core/account";
 import * as inst from "@/access-control/services/institution";
 import * as com from "@/core/social/communities";
 import * as fr from "@/core/social/friends";
@@ -116,4 +117,14 @@ export async function moduleToggle(f: FormData) {
     if (!p.session.mfaVerified) throw new Forbidden("mfa_required");
     await setModuleEnabled(db, str(f, "id"), str(f, "enabled") === "1");
   }, "Módulo atualizado.");
+}
+
+export async function profileUpdate(f: FormData) {
+  await run("/settings", (p, db) => updateProfile(db, p.session.userId, { displayName: str(f, "displayName"), bio: str(f, "bio") }), "Perfil atualizado.");
+}
+export async function accountDelete(f: FormData) {
+  const p = await requirePage();
+  try { await deleteAccount(getDb(), p.session.userId, String(f.get("password") ?? "")); } catch (e) { back("/settings", e); }
+  await clearSessionCookie();
+  redirect("/login?ok=" + encodeURIComponent("Conta excluída. Seus dados pessoais foram anonimizados."));
 }

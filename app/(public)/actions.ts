@@ -2,14 +2,18 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import * as auth from "@/core/auth/service";
+import { throttle } from "@/core/auth/throttle";
 import { registerWithInvitation } from "@/access-control/services/institution";
 import { getDb } from "@/web/db";
 import { back, done, str } from "@/web/form";
 import { appUrl, sendMail } from "@/web/mailer";
 import { sessionToken, setSessionCookie } from "@/web/session";
 
+const ipOf = async () => (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "desconhecido";
+
 export async function loginAction(f: FormData) {
   const h = await headers();
+  await throttle(getDb(), `login:${await ipOf()}`, 20, 10 * 60_000).catch((e) => back("/login", e));
   const r = await auth
     .login(getDb(), { email: str(f, "email"), password: String(f.get("password") ?? ""), ip: h.get("x-forwarded-for")?.split(",")[0]?.trim(), userAgent: h.get("user-agent") ?? undefined })
     .catch((e) => back("/login", e));
@@ -26,6 +30,7 @@ export async function mfaAction(f: FormData) {
 
 export async function registerAction(f: FormData) {
   const token = str(f, "token"), path = `/register?token=${encodeURIComponent(token)}`;
+  await throttle(getDb(), `register:${await ipOf()}`, 10, 10 * 60_000).catch((e) => back(path, e));
   if (String(f.get("password")) !== String(f.get("password2"))) back(path, new (await import("@/core/errors")).Invalid("as senhas não conferem"));
   const email = str(f, "email");
   const r = await registerWithInvitation(getDb(), { token, email, username: str(f, "username").toLowerCase(), fullName: str(f, "fullName"), password: String(f.get("password") ?? "") }).catch((e) => back(path, e));
@@ -39,6 +44,7 @@ export async function verifyAction(f: FormData) {
 }
 
 export async function forgotAction(f: FormData) {
+  await throttle(getDb(), `forgot:${await ipOf()}`, 5, 10 * 60_000).catch((e) => back("/forgot", e));
   const email = str(f, "email");
   const t = await auth.requestPasswordReset(getDb(), email);
   if (t) await sendMail(email, "Redefinição de senha", `Redefina sua senha (válido por 1 hora): ${appUrl()}/reset?token=${t}`);

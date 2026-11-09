@@ -36,6 +36,13 @@
       "when": 1794182937975,
       "tag": "0004_no_force_rls",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1794183200128,
+      "tag": "0005_rate_limits",
+      "breakpoints": true
     }
   ]
 }

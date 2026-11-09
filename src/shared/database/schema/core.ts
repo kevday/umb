@@ -117,3 +117,10 @@ export const reports = pgTable("reports", {
   status: text("status").notNull().default("aberta"),
   createdAt: ts("created_at").defaultNow().notNull(),
 });
+
+/** Janela fixa por chave (ex.: "login:<ip>"), compatível com serverless (estado no banco). */
+export const rateLimits = pgTable("rate_limits", {
+  key: text("key").primaryKey(),
+  count: integer("count").notNull(),
+  windowStart: ts("window_start").notNull(),
+});
