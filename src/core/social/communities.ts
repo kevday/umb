@@ -52,7 +52,7 @@ export async function getCommunity(db: Db, me: string, slug: string) {
     const c = await community(tx, slug);
     const topics = await tx.select().from(communityTopics).where(eq(communityTopics.communityId, c.id))
       .orderBy(desc(communityTopics.pinned), desc(communityTopics.createdAt));
-    return { community: { id: c.id, slug: c.slug, name: c.name, description: c.description }, topics };
+    return { community: { id: c.id, slug: c.slug, name: c.name, description: c.description, createdBy: c.createdBy }, topics };
   });
 }
 
@@ -112,3 +112,11 @@ export async function reportContent(db: Db, me: string, i: { kind: "topic" | "re
 }
 
 export { and };
+
+export async function recentTopics(db: Db, me: string, limit = 5) {
+  await requireMember(db, me);
+  return withUser(db, me, (tx) =>
+    tx.select({ id: communityTopics.id, title: communityTopics.title, slug: communities.slug, community: communities.name, createdAt: communityTopics.createdAt })
+      .from(communityTopics).innerJoin(communities, eq(communities.id, communityTopics.communityId))
+      .orderBy(desc(communityTopics.createdAt)).limit(limit));
+}

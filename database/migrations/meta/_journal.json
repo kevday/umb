@@ -22,6 +22,20 @@
       "when": 1794164354798,
       "tag": "0002_modules",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1794182757969,
+      "tag": "0003_grant_reader",
+      "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1794182937975,
+      "tag": "0004_no_force_rls",
+      "breakpoints": true
     }
   ]
 }

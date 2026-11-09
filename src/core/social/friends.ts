@@ -4,6 +4,7 @@ import { withUser } from "@/shared/database/rls";
 import { friendships, profiles } from "@/shared/database/schema";
 import { Invalid, NotFound } from "../errors";
 import { isFk, requireMember } from "./guard";
+import { loadSubject } from "@/access-control/subject";
 
 const between = (a: string, b: string) =>
   or(and(eq(friendships.requesterId, a), eq(friendships.addresseeId, b)), and(eq(friendships.requesterId, b), eq(friendships.addresseeId, a)));
@@ -67,4 +68,23 @@ export async function searchMembers(db: Db, me: string, q: string) {
   return withUser(db, me, (tx) =>
     tx.select({ id: profiles.userId, name: profiles.fullName }).from(profiles)
       .where(ilike(profiles.fullName, `%${term.replace(/[%_\\]/g, "\\$&")}%`)).limit(20));
+}
+
+export async function namesOf(db: Db, me: string, ids: string[]) {
+  if (!ids.length) return new Map<string, string>();
+  const rows = await withUser(db, me, (tx) => tx.select({ id: profiles.userId, name: profiles.fullName }).from(profiles));
+  return new Map(rows.filter((r) => ids.includes(r.id)).map((r) => [r.id, r.name]));
+}
+
+export async function areFriends(db: Db, me: string, other: string) {
+  const rows = await withUser(db, me, (tx) => tx.select().from(friendships).where(and(between(me, other), eq(friendships.status, "aceita"))));
+  return rows.length > 0;
+}
+
+/** Dados institucionais (Grau, cargos, Loja) só para o próprio, amigos e membros da mesma Loja. */
+export async function canSeeInstitutional(db: Db, me: string, other: string) {
+  if (me === other) return true;
+  if (await areFriends(db, me, other)) return true;
+  const [a, b] = await Promise.all([loadSubject(db, me), loadSubject(db, other)]);
+  return !!a?.lodgeId && a.lodgeId === b?.lodgeId;
 }

@@ -128,3 +128,14 @@ export async function changePassword(db: Db, s: SessionInfo, current: string, ne
 }
 
 export { stepOf };
+
+/** Segredo ainda não confirmado (para exibir durante o cadastro do 2FA). */
+export async function pendingTotpSecret(db: Db, userId: string): Promise<string | null> {
+  const [t] = await db.select().from(userTotp).where(eq(userTotp.userId, userId));
+  return t && !t.confirmedAt ? decrypt(t.secretEnc) : null;
+}
+
+/** A sessão que acabou de provar o segundo fator passa a valer como 2FA. */
+export async function markSessionMfa(db: Db, sessionId: string) {
+  await db.update(sessions).set({ mfaVerified: true }).where(eq(sessions.id, sessionId));
+}
