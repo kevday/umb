@@ -1,4 +1,4 @@
-import { and, eq, or } from "drizzle-orm";
+import { and, eq, ilike, or } from "drizzle-orm";
 import type { Db } from "@/shared/database/client";
 import { withUser } from "@/shared/database/rls";
 import { friendships, profiles } from "@/shared/database/schema";
@@ -57,4 +57,14 @@ export async function listFriends(db: Db, me: string) {
 
 export async function pendingRequests(db: Db, me: string) {
   return withUser(db, me, (tx) => tx.select().from(friendships).where(and(eq(friendships.addresseeId, me), eq(friendships.status, "pendente"))));
+}
+
+/** Diretório de membros por nome (o perfil é identidade pública entre membros; dados institucionais, não). */
+export async function searchMembers(db: Db, me: string, q: string) {
+  await requireMember(db, me);
+  const term = q.trim();
+  if (term.length < 2) return [];
+  return withUser(db, me, (tx) =>
+    tx.select({ id: profiles.userId, name: profiles.fullName }).from(profiles)
+      .where(ilike(profiles.fullName, `%${term.replace(/[%_\\]/g, "\\$&")}%`)).limit(20));
 }
