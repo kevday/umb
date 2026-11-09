@@ -27,6 +27,12 @@ export default async function Profile({ params, searchParams }: { params: Promis
   const [lodge] = subj?.lodgeId ? await db.select().from(lodges).where(eq(lodges.id, subj.lodgeId)) : [];
   const posts = await orNotFound(listScrap(db, me, id));
   const offices = subj?.offices.filter((o) => !o.endsAt || o.endsAt > new Date()) ?? [];
+  const visibility = (prof.visibility ?? {}) as Record<string, string>;
+  // Sem configuração explícita, a biografia é privada. "autorizados" permanece negado
+  // até existir um mecanismo de concessão individual verificável.
+  const bioScope = visibility.bio ?? "eu";
+  const sameLodge = !!p.subject.lodgeId && p.subject.lodgeId === subj?.lodgeId;
+  const showBio = own || (bioScope === "amigos" && friend) || (bioScope === "loja" && sameLodge);
   return (
     <>
       <h1>{prof.displayName ?? prof.fullName}</h1>
@@ -35,7 +41,7 @@ export default async function Profile({ params, searchParams }: { params: Promis
         {subj ? (
           <div>{grau(subj.degree)}{lodge ? ` · ${lodge.name}` : ""}{offices.length ? ` · ${offices.map((o) => o.name).join(", ")}` : ""}</div>
         ) : <div className="mut">Informações institucionais restritas.</div>}
-        {prof.bio && <p>{prof.bio}</p>}
+        {showBio && prof.bio && <p>{prof.bio}</p>}
         {!own && !friend && (
           <form action={friendRequest}><input type="hidden" name="id" value={id} /><button>Adicionar aos amigos</button></form>
         )}
