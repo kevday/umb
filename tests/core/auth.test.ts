@@ -85,6 +85,22 @@ describe("login, sessões e bloqueio", () => {
 });
 
 describe("2FA", () => {
+  it("duas requisições concorrentes não consomem o mesmo passo TOTP", async () => {
+    const { db, u } = await setup();
+    const t0 = new Date("2026-11-08T12:00:00Z");
+    const { secret } = await auth.enrollTotp(db, u.id, "a@t.org");
+    await auth.confirmTotp(db, u.id, totpAt(secret, t0.getTime()), t0);
+    const t1 = new Date(t0.getTime() + 30_000);
+    const a = await auth.login(db, { email: "a@t.org", password: PW }, t1);
+    const b = await auth.login(db, { email: "a@t.org", password: PW }, t1);
+    const code = totpAt(secret, t1.getTime());
+    const results = await Promise.allSettled([
+      auth.verifyMfa(db, a.token, code, t1),
+      auth.verifyMfa(db, b.token, code, t1),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "rejected")).toHaveLength(1);
+  });
   it("cadastro, login em duas etapas e bloqueio de reuso do código", async () => {
     const { db, u } = await setup();
     const t0 = new Date("2026-11-08T12:00:00Z");
