@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lt, ne } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, ne, or } from "drizzle-orm";
 import type { Db } from "@/shared/database/client";
 import { emailTokens, sessions, userTotp, users } from "@/shared/database/schema";
 import { brand } from "@/config/brand";
