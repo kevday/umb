@@ -77,7 +77,7 @@ export default async function Institution({ searchParams }: { searchParams: Prom
           <form action={inviteCreate} className="card row">
             <input type="hidden" name="lodgeId" value={lodge.id} />
             <input name="email" type="email" placeholder="E-mail do convidado" required />
-            <select name="degree"><option value="1">Aprendiz</option><option value="2">Companheiro</option><option value="3">Mestre</option></select>
+            <span className="mut">Grau inicial: Aprendiz</span>
             <button>Criar convite</button>
           </form>
 
