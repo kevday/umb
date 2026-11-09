@@ -21,10 +21,10 @@ const DAY = 86_400_000;
 export interface Ctx { userId: string; mfaVerified: boolean }
 
 type Scope = { lodgeId?: string; jurisdictionId?: string };
-const holds = (s: Subject, names: string[], scope: Scope, now: Date) =>
+export const holds = (s: Subject, names: string[], scope: Scope, now: Date) =>
   can(s, "office", { id: "office", policy: { kind: "office", names, ...scope } }, now).allow;
 
-async function actorOf(db: Db, ctx: Ctx, now: Date): Promise<Subject> {
+export async function actorOf(db: Db, ctx: Ctx, now: Date): Promise<Subject> {
   const s = await loadSubject(db, ctx.userId, now);
   if (!s) throw new Forbidden("sem vínculo ativo");
   // quem exerce qualquer cargo só age com sessão que passou pelo 2FA
@@ -32,7 +32,7 @@ async function actorOf(db: Db, ctx: Ctx, now: Date): Promise<Subject> {
   return s;
 }
 
-async function lodgeOf(db: Db, id: string) {
+export async function lodgeOf(db: Db, id: string) {
   const [l] = await db.select().from(lodges).where(eq(lodges.id, id));
   if (!l) throw new NotFound("Loja");
   return l;
