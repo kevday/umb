@@ -100,7 +100,7 @@ export async function createLodge(db: Db, ctx: Ctx, i: { jurisdictionId: string;
 
 export async function createInvitation(db: Db, ctx: Ctx, i: { lodgeId: string; email: string; intendedDegree: number }, now = new Date()) {
   const { lodge } = await lodgeAuthority(db, ctx, i.lodgeId, [SEC, VM], now);
-  if (i.intendedDegree !== 1) throw new Invalid("o cadastro por convite inicia no Grau 1; progressões exigem solicitação e aprovação próprias");
+  if (!Number.isInteger(i.intendedDegree) || i.intendedDegree < 1 || i.intendedDegree > 33) throw new Invalid("Grau inválido");
   const token = randomToken();
   const [inv] = await db.transaction(async (t) => {
     const tx = t as unknown as Db;
@@ -121,6 +121,9 @@ export async function approveInvitation(db: Db, ctx: Ctx, invitationId: string, 
   const lodge = await lodgeOf(db, inv.lodgeId);
   const d = canApproveInLodge(actor, { lodgeId: lodge.id, jurisdictionId: lodge.jurisdictionId, requestedBy: inv.createdBy }, now);
   if (!d.allow) throw new Forbidden(d.reason);
+  // Grau acima de Aprendiz é importação de quem já é maçom em outra Loja: só a Potência certifica.
+  if (inv.intendedDegree > 1 && !holds(actor, [POTENCIA], { jurisdictionId: lodge.jurisdictionId }, now))
+    throw new Forbidden("convite com Grau acima de Aprendiz exige aprovação da Administração da Potência");
   await db.transaction(async (t) => {
     const tx = t as unknown as Db;
     await tx.update(invitations).set({ approvedBy: ctx.userId }).where(eq(invitations.id, inv.id));
@@ -150,8 +153,8 @@ export async function registerWithInvitation(
       await tx.update(invitations).set({ usedBy: u.id }).where(eq(invitations.id, inv.id));
       await tx.insert(profiles).values({ userId: u.id, fullName: i.fullName });
       await tx.insert(institutionalMemberships).values({ userId: u.id, lodgeId: inv.lodgeId, startsAt: now });
-      await tx.insert(degreeAssignments).values({ userId: u.id, degree: 1, requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
-      await appendAudit(tx, { actorId: u.id, action: "member.registered", subjectId: u.id, payload: { ...scopeOf(lodge), invitationId: inv.id, degree: 1 } }, now);
+      await tx.insert(degreeAssignments).values({ userId: u.id, degree: inv.intendedDegree, requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
+      await appendAudit(tx, { actorId: u.id, action: "member.registered", subjectId: u.id, payload: { ...scopeOf(lodge), invitationId: inv.id, degree: inv.intendedDegree } }, now);
       return u.id;
     });
   } catch (e) {

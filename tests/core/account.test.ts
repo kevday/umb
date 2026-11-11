@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { people } from "../helpers/people";
 import { PW, ctx } from "../helpers/world";
+import { eq } from "drizzle-orm";
+import { profiles } from "@/shared/database/schema";
 import { deleteAccount, exportMyData, updateProfile } from "@/core/account";
 import { throttle } from "@/core/auth/throttle";
 import * as auth from "@/core/auth/service";
@@ -18,6 +20,18 @@ describe("limite de tentativas", () => {
     await expect(throttle(db, "login:1.2.3.4", 3, 600_000, t0)).rejects.toThrow(Invalid);
     await throttle(db, "login:9.9.9.9", 3, 600_000, t0); // outra chave não é afetada
     await expect(throttle(db, "login:1.2.3.4", 3, 600_000, new Date(t0.getTime() + 601_000))).resolves.toBeUndefined();
+  });
+});
+
+describe("privacidade da biografia", () => {
+  it("é privada por padrão e só aceita escopos válidos", async () => {
+    const { db, r1 } = await people();
+    await updateProfile(db, r1, { bio: "texto" });
+    expect(((await db.select().from(profiles).where(eq(profiles.userId, r1)))[0].visibility as { bio: string }).bio).toBe("eu");
+    await updateProfile(db, r1, { bio: "texto", bioVisibility: "amigos" });
+    expect(((await db.select().from(profiles).where(eq(profiles.userId, r1)))[0].visibility as { bio: string }).bio).toBe("amigos");
+    await updateProfile(db, r1, { bio: "texto", bioVisibility: "autorizados" }); // ainda negado: cai em "eu"
+    expect(((await db.select().from(profiles).where(eq(profiles.userId, r1)))[0].visibility as { bio: string }).bio).toBe("eu");
   });
 });
 

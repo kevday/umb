@@ -41,7 +41,6 @@ describe("fundação", () => {
 describe("convites e cadastro", () => {
   it("quem cria o convite não o aprova; a Potência aprova", async () => {
     const { db, f, A, B } = await world();
-    await expect(createInvitation(db, B, { lodgeId: f.lodgeId, email: "grau-alto@teste.org", intendedDegree: 2 })).rejects.toThrow(Invalid);
     const inv = await createInvitation(db, B, { lodgeId: f.lodgeId, email: "novo@teste.org", intendedDegree: 1 });
     await expect(approveInvitation(db, B, inv.invitationId)).rejects.toThrow(Forbidden);
     await expect(registerWithInvitation(db, { token: inv.token, email: "novo@teste.org", username: "novo", fullName: "Novo", password: PW })).rejects.toThrow("não aprovado");
@@ -63,6 +62,28 @@ describe("convites e cadastro", () => {
     await expect(createInvitation(db, ctx(comum), { lodgeId: f.lodgeId, email: "x@t.org", intendedDegree: 1 })).rejects.toThrow(Forbidden);
     const [tech] = await db.insert(users).values({ email: "tec@t.org", username: "tecnico", passwordHash: "x", isTechnicalAdmin: true }).returning();
     await expect(createInvitation(db, ctx(tech.id), { lodgeId: f.lodgeId, email: "x@t.org", intendedDegree: 1 })).rejects.toThrow(Forbidden);
+  });
+});
+
+describe("importação com Grau acima de Aprendiz", () => {
+  it("só a Potência aprova convite com Grau elevado; o Venerável não", async () => {
+    const { db, f, A, B, member } = await world();
+    const sec = await member({ name: "secimport", degree: 3 });
+    await inst.appointOffice(db, B, { userId: sec, name: "Secretário", lodgeId: f.lodgeId, startsAt: past });
+    const inv = await createInvitation(db, ctx(sec), { lodgeId: f.lodgeId, email: "mestre-importado@teste.org", intendedDegree: 3 });
+    await expect(approveInvitation(db, B, inv.invitationId)).rejects.toThrow("Administração da Potência");
+    await approveInvitation(db, A, inv.invitationId);
+    const r = await registerWithInvitation(db, { token: inv.token, email: "mestre-importado@teste.org", username: "importado", fullName: "Importado", password: PW });
+    expect((await loadSubject(db, r.userId))?.degree).toBe(3);
+    await expect(createInvitation(db, B, { lodgeId: f.lodgeId, email: "x@t.org", intendedDegree: 0 })).rejects.toThrow(Invalid);
+  });
+  it("convite de Aprendiz segue aprovado pelo Venerável", async () => {
+    const { db, f, A, B, member } = await world();
+    const sec = await member({ name: "secnormal", degree: 3 });
+    await inst.appointOffice(db, B, { userId: sec, name: "Secretário", lodgeId: f.lodgeId, startsAt: past });
+    const inv = await createInvitation(db, ctx(sec), { lodgeId: f.lodgeId, email: "apr@teste.org", intendedDegree: 1 });
+    await expect(approveInvitation(db, B, inv.invitationId)).resolves.toBeUndefined();
+    void A;
   });
 });
 

@@ -1,12 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { people } from "../helpers/people";
 import { ctx } from "../helpers/world";
 import * as inst from "@/access-control/services/institution";
 import { can } from "@/access-control/engine/can";
 import { loadSubject } from "@/access-control/subject";
 import type { Rule } from "@/contracts/access-control";
-import { users } from "@/shared/database/schema";
+import { institutionalMemberships, officeAssignments, users } from "@/shared/database/schema";
 
 /** O RLS (SQL) e o ACE (TypeScript) devem decidir sempre igual. */
 describe("paridade ACE (TS) × RLS (SQL)", () => {
@@ -23,6 +23,15 @@ describe("paridade ACE (TS) × RLS (SQL)", () => {
     const [tech] = await db.insert(users).values({ email: "t@t.org", username: "tecnico", passwordHash: "x", isTechnicalAdmin: true }).returning();
     const [ghost] = await db.insert(users).values({ email: "g@t.org", username: "fantasma", passwordHash: "x" }).returning();
 
+    // vínculos ambíguos, vínculo futuro e cargo de outra Loja: TS e SQL devem concordar em todos
+    const amb = await member({ name: "ambigua", degree: 3 });
+    const endsAt = new Date(Date.now() + 86_400_000);
+    await db.update(institutionalMemberships).set({ endsAt }).where(eq(institutionalMemberships.userId, amb));
+    await db.insert(institutionalMemberships).values({ userId: amb, lodgeId: l2.id, startsAt: new Date(Date.now() - 1_000), endsAt });
+    const fut = await member({ name: "futuro", degree: 3 });
+    await db.update(institutionalMemberships).set({ startsAt: new Date(Date.now() + 86_400_000) }).where(eq(institutionalMemberships.userId, fut));
+    const forasteiro = await member({ name: "forasteiro", degree: 3 });
+    await db.insert(officeAssignments).values({ userId: forasteiro, lodgeId: l2.id, name: "Secretário", startsAt: new Date("2026-01-01"), appointedBy: A.userId });
     const L1 = f.lodgeId, J = f.jurisdictionId;
     const rules: Rule[] = [
       { kind: "minDegree", value: 1 }, { kind: "minDegree", value: 2 }, { kind: "minDegree", value: 3 },
@@ -35,7 +44,7 @@ describe("paridade ACE (TS) × RLS (SQL)", () => {
       { kind: "all", rules: [{ kind: "any", rules: [{ kind: "lodge", id: l2.id }, { kind: "office", names: ["Venerável Mestre"] }] }, { kind: "status", allowed: ["regular"] }] },
       { kind: "all", rules: [] }, { kind: "any", rules: [] },
     ];
-    const subjects = [A.userId, B.userId, r1, c1, m1, o2, sec, velho, susp, deb, tech.id, ghost.id];
+    const subjects = [A.userId, B.userId, r1, c1, m1, o2, sec, velho, susp, deb, amb, fut, forasteiro, tech.id, ghost.id];
     let n = 0;
     for (const uid of subjects) {
       const s = await loadSubject(db, uid);

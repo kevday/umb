@@ -5,6 +5,7 @@
 **Bloqueantes (técnicos):**
 - Ativar o envio real de e-mail (Resend) e configurar SPF/DKIM do domínio.
 - Limite de tentativas por IP depende de `x-forwarded-for` confiável (ok na Vercel); avaliar Redis se o volume crescer.
+- Visibilidade da biografia é aplicada na aplicação; para defesa em profundidade, mover bio/visibilidade para tabela própria com RLS por campo.
 - Registrar o aceite (versão) dos termos no cadastro.
 - Teste de invasão externo e revisão do RLS por segunda pessoa.
 

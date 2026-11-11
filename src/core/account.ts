@@ -57,7 +57,12 @@ export async function deleteAccount(db: Db, me: string, password: string, now = 
   });
 }
 
-export async function updateProfile(db: Db, me: string, i: { displayName?: string; bio?: string }) {
+export type BioVisibility = "eu" | "amigos" | "loja";
+
+/** Sem configuração, a biografia é privada. "autorizados" fica fora até existir concessão individual. */
+export async function updateProfile(db: Db, me: string, i: { displayName?: string; bio?: string; bioVisibility?: string }) {
   const displayName = (i.displayName ?? "").trim().slice(0, 80) || null, bio = (i.bio ?? "").trim().slice(0, 500) || null;
-  await db.update(profiles).set({ displayName, bio }).where(eq(profiles.userId, me));
+  const vis: BioVisibility = (["eu", "amigos", "loja"] as const).find((v) => v === i.bioVisibility) ?? "eu";
+  const [p] = await db.select().from(profiles).where(eq(profiles.userId, me));
+  await db.update(profiles).set({ displayName, bio, visibility: { ...((p?.visibility ?? {}) as object), bio: vis } }).where(eq(profiles.userId, me));
 }

@@ -24,6 +24,10 @@ export default async function Settings({ searchParams }: { searchParams: Promise
           <form action={profileUpdate} className="card stack">
             <label htmlFor="displayName">Nome de exibição</label><input id="displayName" name="displayName" type="text" maxLength={80} defaultValue={prof.displayName ?? ""} />
             <label htmlFor="bio">Sobre você</label><textarea id="bio" name="bio" maxLength={500} defaultValue={prof.bio ?? ""} />
+            <label htmlFor="bioVisibility">Quem pode ler</label>
+            <select id="bioVisibility" name="bioVisibility" defaultValue={String((prof.visibility as Record<string, string>)?.bio ?? "eu")}>
+              <option value="eu">Somente eu</option><option value="amigos">Meus amigos</option><option value="loja">Membros da minha Loja</option>
+            </select>
             <button>Salvar</button>
           </form>
         </>

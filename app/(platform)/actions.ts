@@ -75,7 +75,7 @@ export async function reportCreate(f: FormData) {
 export async function inviteCreate(f: FormData) {
   await run("/institution", async (p, db) => {
     const email = str(f, "email");
-    const r = await inst.createInvitation(db, p.ctx, { lodgeId: str(f, "lodgeId"), email, intendedDegree: 1 });
+    const r = await inst.createInvitation(db, p.ctx, { lodgeId: str(f, "lodgeId"), email, intendedDegree: Number(str(f, "degree")) || 1 });
     await sendMail(email, "Convite para a rede", `Seu convite (válido por 14 dias, após aprovação): ${appUrl()}/register?token=${r.token}`);
   }, "Convite criado e enviado. Ele só vale depois de aprovado por outra autoridade.");
 }
@@ -120,7 +120,7 @@ export async function moduleToggle(f: FormData) {
 }
 
 export async function profileUpdate(f: FormData) {
-  await run("/settings", (p, db) => updateProfile(db, p.session.userId, { displayName: str(f, "displayName"), bio: str(f, "bio") }), "Perfil atualizado.");
+  await run("/settings", (p, db) => updateProfile(db, p.session.userId, { displayName: str(f, "displayName"), bio: str(f, "bio"), bioVisibility: str(f, "bioVisibility") }), "Perfil atualizado.");
 }
 export async function accountDelete(f: FormData) {
   const p = await requirePage();
