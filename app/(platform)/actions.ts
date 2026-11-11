@@ -75,7 +75,7 @@ export async function reportCreate(f: FormData) {
 export async function inviteCreate(f: FormData) {
   await run("/institution", async (p, db) => {
     const email = str(f, "email");
-    const r = await inst.createInvitation(db, p.ctx, { lodgeId: str(f, "lodgeId"), email, intendedDegree: Number(str(f, "degree")) });
+    const r = await inst.createInvitation(db, p.ctx, { lodgeId: str(f, "lodgeId"), email, intendedDegree: 1 });
     await sendMail(email, "Convite para a rede", `Seu convite (válido por 14 dias, após aprovação): ${appUrl()}/register?token=${r.token}`);
   }, "Convite criado e enviado. Ele só vale depois de aprovado por outra autoridade.");
 }

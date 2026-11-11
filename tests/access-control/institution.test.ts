@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { eq, sql } from "drizzle-orm";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { world, ctx, PW } from "../helpers/world";
 import * as inst from "@/access-control/services/institution";
 import * as auth from "@/core/auth/service";
@@ -7,7 +7,7 @@ import { loadSubject } from "@/access-control/subject";
 import { can } from "@/access-control/engine/can";
 import { verifyAuditChain } from "@/access-control/audit/store";
 import { Forbidden, Invalid } from "@/core/errors";
-import { degreeAssignments, sessions, users } from "@/shared/database/schema";
+import { degreeAssignments, institutionalMemberships, sessions, users } from "@/shared/database/schema";
 import { createInvitation, approveInvitation, registerWithInvitation } from "@/access-control/services/institution";
 
 const past = new Date("2026-01-01"), later = new Date(Date.now() + 365 * 86_400_000);
@@ -26,11 +26,22 @@ describe("fundação", () => {
     expect(vm.offices.map((o) => o.name)).toContain("Venerável Mestre");
     expect((await verifyAuditChain(db)).ok).toBe(true);
   });
+  it("nega sujeito com vínculos institucionais simultaneamente vigentes", async () => {
+    const { db, f, A, member } = await world();
+    const target = await member({ name: "ambigua", degree: 1 });
+    const other = await inst.createLodge(db, A, { jurisdictionId: f.jurisdictionId, name: "Loja Sobreposta" });
+    const endsAt = new Date(Date.now() + 86_400_000);
+    await db.update(institutionalMemberships).set({ endsAt })
+      .where(and(eq(institutionalMemberships.userId, target), isNull(institutionalMemberships.endsAt)));
+    await db.insert(institutionalMemberships).values({ userId: target, lodgeId: other.id, startsAt: new Date(Date.now() - 1_000), endsAt });
+    expect(await loadSubject(db, target)).toBeNull();
+  });
 });
 
 describe("convites e cadastro", () => {
   it("quem cria o convite não o aprova; a Potência aprova", async () => {
     const { db, f, A, B } = await world();
+    await expect(createInvitation(db, B, { lodgeId: f.lodgeId, email: "grau-alto@teste.org", intendedDegree: 2 })).rejects.toThrow(Invalid);
     const inv = await createInvitation(db, B, { lodgeId: f.lodgeId, email: "novo@teste.org", intendedDegree: 1 });
     await expect(approveInvitation(db, B, inv.invitationId)).rejects.toThrow(Forbidden);
     await expect(registerWithInvitation(db, { token: inv.token, email: "novo@teste.org", username: "novo", fullName: "Novo", password: PW })).rejects.toThrow("não aprovado");

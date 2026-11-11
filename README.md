@@ -26,4 +26,4 @@ Plataforma social com acesso hierárquico e progressivo (Grau, cargo, Loja, stat
 - [LGPD: inventário, bases legais e direitos](docs/lgpd.md) (minuta para validação jurídica)
 - [Operação e implantação](docs/operacao.md)
 - [Pendências antes da produção](docs/pendencias.md)
-- CI pronto em `docs/ci/ci.yml`: copie para `.github/workflows/ci.yml` (o token usado nas sessões não tinha o escopo `workflow`)
+- CI executado pelo GitHub Actions em `.github/workflows/ci.yml`.

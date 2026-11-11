@@ -1,0 +1,64 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - "5432:5432"
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    env:
+      DATABASE_URL: postgres://umb_owner:x@127.0.0.1:5432/rede
+      APP_URL: http://127.0.0.1:3100
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - name: Banco com dono sem superusuário (como em produção)
+        run: |
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c "create role umb_owner login createrole password 'x'"
+          PGPASSWORD=postgres psql -h 127.0.0.1 -U postgres -c "create database rede owner umb_owner"
+          echo "DATA_ENCRYPTION_KEY=$(openssl rand -base64 32)" >> "$GITHUB_ENV"
+      - run: npm run db:migrate
+      - name: Fundação e conta técnica de teste
+        env:
+          BOOT_JURISDICTION: Potência Teste
+          BOOT_LODGE: Loja Exemplo
+          BOOT_LODGE_NUMBER: "1"
+          BOOT_EVIDENCE: Ofício nº 1/2026 da Potência
+          BOOT_AUTH_EMAIL: pot@teste.org
+          BOOT_AUTH_USER: potencia
+          BOOT_AUTH_NAME: Autoridade Potência
+          BOOT_AUTH_PASSWORD: senha-de-teste-forte-1
+          BOOT_VM_EMAIL: vm@teste.org
+          BOOT_VM_USER: veneravel
+          BOOT_VM_NAME: Venerável Um
+          BOOT_VM_PASSWORD: senha-de-teste-forte-2
+          TECH_EMAIL: tec@teste.org
+          TECH_USER: tecnico
+          TECH_PASSWORD: senha-de-teste-forte-3
+        run: |
+          npm run bootstrap
+          npm run tech-admin
+      - run: npm run build
+      - name: Ponta a ponta contra o servidor real
+        run: |
+          npx next start -p 3100 > /tmp/next.log 2>&1 &
+          for i in $(seq 1 30); do curl -fs http://127.0.0.1:3100/login >/dev/null && break; sleep 2; done
+          npm run e2e

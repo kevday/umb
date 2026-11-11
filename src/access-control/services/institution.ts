@@ -100,7 +100,7 @@ export async function createLodge(db: Db, ctx: Ctx, i: { jurisdictionId: string;
 
 export async function createInvitation(db: Db, ctx: Ctx, i: { lodgeId: string; email: string; intendedDegree: number }, now = new Date()) {
   const { lodge } = await lodgeAuthority(db, ctx, i.lodgeId, [SEC, VM], now);
-  if (!Number.isInteger(i.intendedDegree) || i.intendedDegree < 1 || i.intendedDegree > 33) throw new Invalid("Grau inválido");
+  if (i.intendedDegree !== 1) throw new Invalid("o cadastro por convite inicia no Grau 1; progressões exigem solicitação e aprovação próprias");
   const token = randomToken();
   const [inv] = await db.transaction(async (t) => {
     const tx = t as unknown as Db;
@@ -150,8 +150,8 @@ export async function registerWithInvitation(
       await tx.update(invitations).set({ usedBy: u.id }).where(eq(invitations.id, inv.id));
       await tx.insert(profiles).values({ userId: u.id, fullName: i.fullName });
       await tx.insert(institutionalMemberships).values({ userId: u.id, lodgeId: inv.lodgeId, startsAt: now });
-      await tx.insert(degreeAssignments).values({ userId: u.id, degree: inv.intendedDegree, requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
-      await appendAudit(tx, { actorId: u.id, action: "member.registered", subjectId: u.id, payload: { ...scopeOf(lodge), invitationId: inv.id, degree: inv.intendedDegree } }, now);
+      await tx.insert(degreeAssignments).values({ userId: u.id, degree: 1, requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
+      await appendAudit(tx, { actorId: u.id, action: "member.registered", subjectId: u.id, payload: { ...scopeOf(lodge), invitationId: inv.id, degree: 1 } }, now);
       return u.id;
     });
   } catch (e) {

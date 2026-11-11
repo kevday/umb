@@ -1,4 +1,4 @@
-import { and, eq, isNull, ne, gt } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, ne, or } from "drizzle-orm";
 import type { Db } from "@/shared/database/client";
 import { emailTokens, sessions, userTotp, users } from "@/shared/database/schema";
 import { brand } from "@/config/brand";
@@ -61,17 +61,27 @@ export async function enrollTotp(db: Db, userId: string, account: string) {
   return { secret, uri: otpauthUri(brand.name, account, secret) };
 }
 
+/**
+ * Valida e consome o passo TOTP com UPDATE condicional atômico.
+ * Duas requisições concorrentes com o mesmo código não conseguem consumi-lo duas vezes.
+ */
 async function checkCode(db: Db, userId: string, code: string, now: Date, requireConfirmed: boolean) {
   const [t] = await db.select().from(userTotp).where(eq(userTotp.userId, userId));
   if (!t || (requireConfirmed && !t.confirmedAt)) throw new Invalid("código inválido");
   const step = verifyTotp(decrypt(t.secretEnc), code, now.getTime());
   if (step === null || (t.lastStep !== null && step <= t.lastStep)) throw new Invalid("código inválido");
-  await db.update(userTotp).set({ lastStep: step }).where(eq(userTotp.userId, userId));
+  const [consumed] = await db.update(userTotp).set({ lastStep: step })
+    .where(and(
+      eq(userTotp.userId, userId),
+      or(isNull(userTotp.lastStep), lt(userTotp.lastStep, step)),
+    ))
+    .returning({ userId: userTotp.userId });
+  if (!consumed) throw new Invalid("código inválido");
 }
 
 export async function confirmTotp(db: Db, userId: string, code: string, now = new Date()) {
   await checkCode(db, userId, code, now, false);
-  await db.update(userTotp).set({ confirmedAt: now }).where(eq(userTotp.userId, userId));
+  await db.update(userTotp).set({ confirmedAt: now }).where(and(eq(userTotp.userId, userId), isNull(userTotp.confirmedAt)));
 }
 
 export async function verifyMfa(db: Db, token: string, code: string, now = new Date()) {
