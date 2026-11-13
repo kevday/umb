@@ -6,6 +6,7 @@
  *   BOOT_AUTH_EMAIL=... BOOT_AUTH_USER=... BOOT_AUTH_NAME="..." BOOT_AUTH_PASSWORD=... \
  *   BOOT_VM_EMAIL=...   BOOT_VM_USER=...   BOOT_VM_NAME="..."   BOOT_VM_PASSWORD=... npm run bootstrap
  */
+import "@/setup/load-env";
 import { createDb } from "@/shared/database/client";
 import { bootstrapFounders } from "@/access-control/services/institution";
 

@@ -1,14 +1,13 @@
 /** Cria a conta de administração técnica (sem autoridade maçônica). DATABASE_URL, TECH_EMAIL, TECH_USER, TECH_PASSWORD. */
+import "@/setup/load-env";
 import { createDb } from "@/shared/database/client";
-import { users } from "@/shared/database/schema";
-import { hashPassword, assertPasswordPolicy } from "@/core/auth/password";
+import { assertPasswordPolicy } from "@/core/auth/password";
+import { createTechAdmin } from "@/setup/steps";
 
 const need = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`variável ${k} ausente`); return v; };
 const db = createDb(need("DATABASE_URL"));
-assertPasswordPolicy(need("TECH_PASSWORD"), need("TECH_EMAIL"), need("TECH_USER"));
-await db.insert(users).values({
-  email: need("TECH_EMAIL").toLowerCase(), username: need("TECH_USER"), passwordHash: await hashPassword(need("TECH_PASSWORD")),
-  emailVerifiedAt: new Date(), isTechnicalAdmin: true,
-});
+const p = { name: "Administrador técnico", email: need("TECH_EMAIL"), username: need("TECH_USER"), password: need("TECH_PASSWORD") };
+assertPasswordPolicy(p.password, p.email, p.username);
+await createTechAdmin(db, p);
 console.log("administrador técnico criado");
 process.exit(0);

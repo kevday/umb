@@ -10,17 +10,16 @@ Plataforma social com acesso hierárquico e progressivo (Grau, cargo, Loja, stat
 - **Segurança web:** CSP com nonce, cabeçalhos, CSRF (Server Actions), limite de tentativas, 404 uniforme para áreas restritas.
 - **Verificação:** 62 testes (Postgres real em memória) + 34 verificações ponta a ponta contra o servidor real, no CI.
 
-## Rodar localmente
-    cp .env.example .env     # preencha DATABASE_URL e DATA_ENCRYPTION_KEY
+## Configurar e rodar
     npm ci
-    npm test                 # unidade e integração (PGlite: Postgres real em memória)
-    npm run db:migrate
-    npm run bootstrap        # ver scripts/bootstrap.ts (exige evidência e duas pessoas)
-    npm run tech-admin       # conta técnica
+    npm run setup            # configurador: banco, .env, migrações, administrador e primeiras contas
+    npm run doctor           # verificação de saúde
     npm run dev
+    npm test                 # unidade e integração (PGlite: Postgres real em memória)
     npm run e2e              # com o servidor rodando (ver .github/workflows/ci.yml)
 
 ## Documentação
+- [Configurador (`npm run setup`)](docs/configurador.md)
 - [Decisões de arquitetura](docs/adr/0001-decisoes.md)
 - [Modelo de ameaça](docs/threat-model.md)
 - [LGPD: inventário, bases legais e direitos](docs/lgpd.md) (minuta para validação jurídica)

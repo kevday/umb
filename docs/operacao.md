@@ -1,5 +1,7 @@
 # Operação e implantação
 
+> Atalho: `npm run setup` executa os passos 3 e 4 abaixo (e grava o `.env`). Veja [configurador.md](configurador.md).
+
 ## Variáveis de ambiente
 `APP_NAME`, `APP_SLUG`, `APP_DOMAIN`, `APP_URL`, `APP_MAIL_FROM`, `DATABASE_URL`, `DATA_ENCRYPTION_KEY` (32 bytes em base64), `RESEND_API_KEY`. Ver `.env.example`. Segredos ficam no provedor, nunca no repositório.
 

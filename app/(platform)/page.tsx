@@ -23,8 +23,8 @@ export default async function Home() {
         <div className="mut">{grau(p.subject.degree)}{lodge ? ` · ${lodge.name}` : ""}{offices.length ? ` · ${offices.map((o) => o.name).join(", ")}` : ""}</div>
       </div>
       <div className="card row">
-        <span><Link href="/communities">{comms.length} comunidades</Link> disponíveis</span>
-        <span><Link href="/friends">{pending.length} solicitações</Link> de amizade</span>
+        <span><Link href="/communities">{comms.length} {comms.length === 1 ? "comunidade" : "comunidades"}</Link> {comms.length === 1 ? "disponível" : "disponíveis"}</span>
+        <span><Link href="/friends">{pending.length} {pending.length === 1 ? "solicitação" : "solicitações"}</Link> de amizade</span>
       </div>
       <h2>Atividade recente</h2>
       {recent.length === 0 && <p className="mut">Nada por aqui ainda.</p>}

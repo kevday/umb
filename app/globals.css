@@ -6,10 +6,10 @@ a{color:var(--gold);text-decoration:none}a:hover{text-decoration:underline}
 main{max-width:880px;margin:0 auto;padding:16px 16px 64px}
 .narrow{max-width:420px;margin:8vh auto;padding:16px}
 header.top{border-bottom:1px solid var(--bd);background:var(--card);position:sticky;top:0;z-index:5}
-header.top div{max-width:880px;margin:0 auto;padding:10px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
+header.top div{max-width:1080px;margin:0 auto;padding:10px 16px;display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between}
 .brand{font-weight:700;color:var(--gold)}
 nav.menu{display:flex;gap:4px;flex-wrap:wrap}
-nav.menu a{padding:6px 10px;border-radius:8px;color:var(--tx)}nav.menu a:hover{background:var(--bg);text-decoration:none}
+nav.menu a{padding:6px 8px;font-size:15px;border-radius:8px;color:var(--tx)}nav.menu a:hover{background:var(--bg);text-decoration:none}
 h1{font-size:24px;margin:16px 0 4px}h2{font-size:18px;margin:24px 0 6px}h3{font-size:16px;margin:12px 0 4px}
 .card{background:var(--card);border:1px solid var(--bd);border-radius:14px;padding:14px;margin:10px 0}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:space-between}

@@ -12,7 +12,9 @@
     "bootstrap": "tsx scripts/bootstrap.ts",
     "tech-admin": "tsx scripts/create-tech-admin.ts",
     "start": "next start",
-    "e2e": "tsx e2e/smoke.ts"
+    "e2e": "tsx e2e/smoke.ts",
+    "setup": "tsx scripts/setup.ts",
+    "doctor": "tsx scripts/doctor.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.15",
