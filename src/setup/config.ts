@@ -26,7 +26,7 @@ export function generatePassword(len = 20): string {
 
 /** Caracteres que quebrariam o .env ou o script de shell gerado. */
 const UNSAFE = /["\\`$\r\n]/;
-const EMAIL = /^[^\s@"\\`$]+@[^\s@"\\`$]+\.[^\s@"\\`$]+$/;
+export const EMAIL = /^[^\s@"\\`$]+@[^\s@"\\`$]+\.[^\s@"\\`$]+$/;
 
 export function validateInput(i: SetupInput): { errors: string[]; warnings: string[] } {
   const errors: string[] = [], warnings: string[] = [];
