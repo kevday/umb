@@ -4,6 +4,7 @@ import { testDb } from "../helpers/db";
 import { doctor, provision } from "@/setup/steps";
 import { envFile, generateKey, generatePassword, slugify, usernameFrom, validateInput, vercelScript, type SetupInput } from "@/setup/config";
 import { assertPasswordPolicy } from "@/core/auth/password";
+import { lodges } from "@/shared/database/schema";
 
 const person = (n: string, o: Partial<{ email: string; username: string; password: string }> = {}) => ({
   name: `Pessoa ${n}`, email: o.email ?? `${n}@exemplo.org`, username: o.username ?? n, password: o.password ?? generatePassword(),
@@ -76,6 +77,16 @@ describe("fundação e verificação", () => {
     const r = await doctor(db, { DATA_ENCRYPTION_KEY: "x", APP_URL: "http://rede.exemplo.org" });
     expect(r.find((c) => c.name === "DATA_ENCRYPTION_KEY")?.level).toBe("error");
     expect(r.find((c) => c.name === "APP_URL")?.level).toBe("error");
+  });
+  it("grava o Rito da Loja na fundação e recusa Rito desconhecido", async () => {
+    const db = await testDb();
+    const i = base(); i.inst!.rite = "brasileiro";
+    expect(validateInput(i).errors).toEqual([]);
+    i.inst!.rite = "inventado";
+    expect(validateInput(i).errors.join(" ")).toMatch(/Rito desconhecido/);
+    i.inst!.rite = "brasileiro";
+    await provision(db, { inst: i.inst });
+    expect((await db.select().from(lodges))[0].rite).toBe("brasileiro");
   });
   it("recusa administrador técnico com e-mail de outra conta", async () => {
     const db = await testDb();

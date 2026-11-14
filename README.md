@@ -20,6 +20,7 @@ Plataforma social com acesso hierárquico e progressivo (Grau, cargo, Loja, stat
 
 ## Documentação
 - [Configurador (`npm run setup`)](docs/configurador.md)
+- [Cores por Rito](docs/temas.md)
 - [Decisões de arquitetura](docs/adr/0001-decisoes.md)
 - [Modelo de ameaça](docs/threat-model.md)
 - [LGPD: inventário, bases legais e direitos](docs/lgpd.md) (minuta para validação jurídica)

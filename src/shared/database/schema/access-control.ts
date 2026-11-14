@@ -2,6 +2,7 @@ import { pgTable, uuid, text, integer, serial, jsonb, pgEnum, check, uniqueIndex
 import { sql } from "drizzle-orm";
 import { users } from "./core";
 import { ts } from "./_util";
+import { RITE_IDS } from "@/theme/rites";
 
 export const memberStatus = pgEnum("member_status", ["regular", "debito", "licenciado", "suspenso", "eliminado", "falecido"]);
 
@@ -10,12 +11,18 @@ export const jurisdictions = pgTable("jurisdictions", {
   name: text("name").notNull(),
 });
 
-export const lodges = pgTable("lodges", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  jurisdictionId: uuid("jurisdiction_id").notNull().references(() => jurisdictions.id),
-  name: text("name").notNull(),
-  number: integer("number"),
-});
+export const lodges = pgTable(
+  "lodges",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    jurisdictionId: uuid("jurisdiction_id").notNull().references(() => jurisdictions.id),
+    name: text("name").notNull(),
+    number: integer("number"),
+    /** Rito da Loja (define a paleta); null = padrão */
+    rite: text("rite"),
+  },
+  (t) => [check("lodge_rite_valid", sql`${t.rite} is null or ${t.rite} in (${sql.raw(RITE_IDS.map((r) => `'${r}'`).join(", "))})`)],
+);
 
 export const institutionalMemberships = pgTable(
   "institutional_memberships",

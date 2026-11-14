@@ -7,12 +7,14 @@ import { hasMfa, pendingTotpSecret } from "@/core/auth/service";
 import { otpauthUri } from "@/core/auth/totp";
 import { eq } from "drizzle-orm";
 import { profiles } from "@/shared/database/schema";
-import { accountDelete, passwordChange, profileUpdate, totpConfirm, totpStart } from "../actions";
+import { resolveTheme } from "@/theme/service";
+import { accountDelete, passwordChange, profileUpdate, themeReset, themeSet, totpConfirm, totpStart } from "../actions";
 
 export default async function Settings({ searchParams }: { searchParams: Promise<SP> }) {
   const s = await searchParams, p = await requirePage(), db = getDb(), me = p.session.userId;
   const [on, secret] = await Promise.all([hasMfa(db, me), pendingTotpSecret(db, me)]);
   const [prof] = await db.select().from(profiles).where(eq(profiles.userId, me));
+  const th = prof ? await resolveTheme(db, me) : null;
   const qr = secret ? await QRCode.toString(otpauthUri(brand.name, "conta", secret), { type: "svg", margin: 1 }) : null;
   return (
     <>
@@ -30,6 +32,27 @@ export default async function Settings({ searchParams }: { searchParams: Promise
             </select>
             <button>Salvar</button>
           </form>
+        </>
+      )}
+      {th && (
+        <>
+          <h2>Aparência</h2>
+          <div className="card stack">
+            <p>Paleta atual: <strong>{th.label}</strong>{th.source === "rito" ? " (segue o Rito da sua Loja)" : th.source === "padrao" ? " (sua Loja ainda não definiu um Rito)" : ""}</p>
+            <svg className="swatches" width="176" height="36" role="img" aria-label="Cores da paleta atual">
+              <rect x="0" y="0" width="36" height="36" rx="8" fill={th.theme.decor} />
+              <rect x="44" y="0" width="36" height="36" rx="8" fill={th.theme.decor2} />
+              <rect x="88" y="0" width="36" height="36" rx="8" fill={th.theme.light.link} />
+              <rect x="132" y="0" width="36" height="36" rx="8" fill={th.theme.light.bg} stroke={th.theme.light.bd} />
+            </svg>
+            <form action={themeSet} className="inline">
+              <label htmlFor="color">Usar minha própria cor</label>
+              <input id="color" name="color" type="color" defaultValue={th.custom ?? th.theme.decor} />
+              <button>Aplicar</button>
+            </form>
+            {th.source === "personal" && <form action={themeReset}><button className="sec">Voltar ao padrão (Rito da minha Loja)</button></form>}
+            <p className="mut">O sistema ajusta o tom automaticamente para manter o texto legível nos modos claro e escuro.</p>
+          </div>
         </>
       )}
       <h2>Verificação em duas etapas (2FA)</h2>

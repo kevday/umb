@@ -1,10 +1,11 @@
+import { RITES } from "@/theme/rites";
 import { requireMemberPage } from "@/web/session";
 import { getDb } from "@/web/db";
 import { Flash, grau, type SP } from "@/web/ui";
 import { Forbidden } from "@/core/errors";
 import { institutionOverview } from "@/access-control/services/queries";
 import {
-  degreeDecide, degreeRequest, inviteApprove, inviteCreate, lodgeCreate, officeAppoint, officeEnd, statusSet,
+  degreeDecide, degreeRequest, inviteApprove, inviteCreate, lodgeCreate, officeAppoint, officeEnd, riteSet, statusSet,
 } from "../actions";
 
 const CARGOS = ["Venerável Mestre", "Primeiro Vigilante", "Segundo Vigilante", "Orador", "Secretário", "Tesoureiro", "Hospitaleiro", "Mestre de Cerimônias", "Administração da Potência"];
@@ -32,6 +33,18 @@ export default async function Institution({ searchParams }: { searchParams: Prom
       {ov.lodges.map(({ lodge, members, invitations, requests, offices }) => (
         <section key={lodge.id}>
           <h2>{lodge.name}{lodge.number ? ` nº ${lodge.number}` : ""}</h2>
+
+          <form action={riteSet} className="card row">
+            <input type="hidden" name="lodgeId" value={lodge.id} />
+            <label htmlFor={`rite-${lodge.id}`}>Rito da Loja (define as cores do site)</label>
+            <span className="row">
+              <select id={`rite-${lodge.id}`} name="rite" defaultValue={lodge.rite ?? ""}>
+                <option value="">Padrão (sem Rito definido)</option>
+                {RITES.map((r) => <option key={r.id} value={r.id}>{r.name}</option>)}
+              </select>
+              <button>Salvar Rito</button>
+            </span>
+          </form>
 
           <h3>Membros</h3>
           <div className="card">

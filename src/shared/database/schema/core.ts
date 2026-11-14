@@ -1,4 +1,5 @@
-import { pgTable, uuid, text, pgEnum, jsonb, primaryKey, boolean, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, uuid, text, pgEnum, jsonb, primaryKey, boolean, integer, index, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 import type { Rule } from "@/contracts/access-control";
 import { ts } from "./_util";
 
@@ -50,14 +51,20 @@ export const emailTokens = pgTable("email_tokens", {
   usedAt: ts("used_at"),
 });
 
-export const profiles = pgTable("profiles", {
-  userId: uuid("user_id").primaryKey().references(() => users.id),
-  fullName: text("full_name").notNull(),
-  displayName: text("display_name"),
-  bio: text("bio"),
-  /** visibilidade por campo: { campo: "eu" | "amigos" | "loja" | "autorizados" } */
-  visibility: jsonb("visibility").notNull().default({}),
-});
+export const profiles = pgTable(
+  "profiles",
+  {
+    userId: uuid("user_id").primaryKey().references(() => users.id),
+    fullName: text("full_name").notNull(),
+    displayName: text("display_name"),
+    bio: text("bio"),
+    /** visibilidade por campo: { campo: "eu" | "amigos" | "loja" | "autorizados" } */
+    visibility: jsonb("visibility").notNull().default({}),
+    /** cor própria escolhida pelo irmão (#RRGGBB); null = segue o Rito da Loja */
+    themeColor: text("theme_color"),
+  },
+  (t) => [check("profile_theme_hex", sql`${t.themeColor} is null or ${t.themeColor} ~ '^#[0-9a-fA-F]{6}$'`)],
+);
 
 export const friendshipStatus = pgEnum("friendship_status", ["pendente", "aceita", "bloqueada"]);
 export const friendships = pgTable(

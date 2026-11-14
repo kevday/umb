@@ -1,12 +1,13 @@
 import { randomBytes, randomInt } from "node:crypto";
 import { assertPasswordPolicy } from "@/core/auth/password";
+import { findRite } from "@/theme/rites";
 
 export interface Person { name: string; email: string; username: string; password: string; generated?: boolean }
 export interface SetupInput {
   app: { name: string; slug: string; url: string; mailFrom: string; resendKey?: string };
   db: { url: string; migrationUrl?: string };
   encKey: string;
-  inst?: { jurisdiction: string; lodge: string; lodgeNumber?: number; evidence: string; authority: Person; venerable: Person };
+  inst?: { jurisdiction: string; lodge: string; lodgeNumber?: number; rite?: string; evidence: string; authority: Person; venerable: Person };
   tech?: Person;
 }
 
@@ -55,6 +56,7 @@ export function validateInput(i: SetupInput): { errors: string[]; warnings: stri
     need(i.inst.jurisdiction.trim().length >= 2, "nome da jurisdição/Potência obrigatório");
     need(i.inst.lodge.trim().length >= 2, "nome da Loja obrigatório");
     need(i.inst.lodgeNumber === undefined || (Number.isInteger(i.inst.lodgeNumber) && i.inst.lodgeNumber >= 1), "número da Loja inválido");
+    need(!i.inst.rite || !!findRite(i.inst.rite), "Rito desconhecido (veja a lista em src/theme/rites.ts)");
     need(i.inst.evidence.trim().length >= 10, "evidência da indicação pela Potência: mínimo 10 caracteres (ex.: nº do ofício)");
   }
   for (const [label, p] of people) {

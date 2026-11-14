@@ -1,15 +1,19 @@
 import Link from "next/link";
+import { headers } from "next/headers";
 import type { ReactNode } from "react";
 import { brand } from "@/config/brand";
 import { loadRegistry } from "@/modules";
 import { getDb } from "@/web/db";
 import { requirePage } from "@/web/session";
+import { resolveTheme } from "@/theme/service";
 import { logoutAction } from "./actions";
 
 export default async function PlatformLayout({ children }: { children: ReactNode }) {
   const p = await requirePage();
   const mods = (await loadRegistry(getDb())).navFor(p.subject);
   const tech = !!p.subject.technicalAdmin;
+  const theme = tech ? null : await resolveTheme(getDb(), p.session.userId);
+  const nonce = (await headers()).get("x-nonce") ?? undefined;
   const items: [string, string][] = [
     ["/", "Início"],
     ...(tech ? [] : ([[`/profile/${p.session.userId}`, "Meu perfil"], ["/friends", "Amigos"], ["/communities", "Comunidades"]] as [string, string][])),
@@ -20,6 +24,7 @@ export default async function PlatformLayout({ children }: { children: ReactNode
   ];
   return (
     <>
+      {theme && theme.source !== "padrao" && <style nonce={nonce} dangerouslySetInnerHTML={{ __html: theme.css }} />}
       <header className="top">
         <div>
           <span className="brand">{brand.name}</span>

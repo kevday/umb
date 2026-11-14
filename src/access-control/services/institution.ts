@@ -13,6 +13,7 @@ import { can, officeActive } from "../engine/can";
 import { canApprove, canApproveInLodge, POTENCIA, VM } from "../degrees/approval";
 import { loadSubject } from "../subject";
 import { appendAudit, readAudit } from "../audit/store";
+import { findRite } from "@/theme/rites";
 
 export const SEC = "Secretário";
 const DAY = 86_400_000;
@@ -59,7 +60,7 @@ interface Person { email: string; username: string; fullName: string; password: 
  */
 export async function bootstrapFounders(
   db: Db,
-  i: { jurisdictionName: string; lodgeName: string; lodgeNumber?: number; authority: Person; venerable: Person; evidence: string },
+  i: { jurisdictionName: string; lodgeName: string; lodgeNumber?: number; rite?: string; authority: Person; venerable: Person; evidence: string },
   now = new Date(),
 ) {
   if (i.evidence.trim().length < 10) throw new Invalid("informe a evidência da indicação pela Potência");
@@ -69,7 +70,7 @@ export async function bootstrapFounders(
   return db.transaction(async (t) => {
     const tx = t as unknown as Db;
     const [j] = await tx.insert(jurisdictions).values({ name: i.jurisdictionName }).returning();
-    const [l] = await tx.insert(lodges).values({ jurisdictionId: j.id, name: i.lodgeName, number: i.lodgeNumber }).returning();
+    const [l] = await tx.insert(lodges).values({ jurisdictionId: j.id, name: i.lodgeName, number: i.lodgeNumber, rite: i.rite && findRite(i.rite) ? i.rite : null }).returning();
     const ids: string[] = [];
     for (const [k, p] of [i.authority, i.venerable].entries()) {
       const [u] = await tx.insert(users).values({ email: p.email.trim().toLowerCase(), username: p.username, passwordHash: hashes[k], emailVerifiedAt: now }).returning();
@@ -95,6 +96,18 @@ export async function createLodge(db: Db, ctx: Ctx, i: { jurisdictionId: string;
     const [l] = await tx.insert(lodges).values({ jurisdictionId: i.jurisdictionId, name: i.name, number: i.number }).returning();
     await appendAudit(tx, { actorId: ctx.userId, action: "lodge.created", payload: { ...scopeOf(l), name: i.name } }, now);
     return l;
+  });
+}
+
+/** Define o Rito da Loja (paleta do site). Venerável da Loja ou Administração da Potência; null = padrão. */
+export async function setLodgeRite(db: Db, ctx: Ctx, lodgeId: string, rite: string | null, now = new Date()) {
+  if (rite !== null && !findRite(rite)) throw new Invalid("Rito desconhecido");
+  const { lodge } = await lodgeAuthority(db, ctx, lodgeId, [VM], now);
+  const [cur] = await db.select({ rite: lodges.rite }).from(lodges).where(eq(lodges.id, lodgeId));
+  await db.transaction(async (t) => {
+    const tx = t as unknown as Db;
+    await tx.update(lodges).set({ rite }).where(eq(lodges.id, lodgeId));
+    await appendAudit(tx, { actorId: ctx.userId, action: "lodge.rite", payload: { ...scopeOf(lodge), from: cur?.rite ?? null, to: rite } }, now);
   });
 }
 

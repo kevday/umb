@@ -57,7 +57,7 @@ export async function provision(db: Db, i: Pick<SetupInput, "inst" | "tech">, no
     if (has.n > 0) out.founders = "já existia";
     else {
       await bootstrapFounders(db, {
-        jurisdictionName: i.inst.jurisdiction, lodgeName: i.inst.lodge, lodgeNumber: i.inst.lodgeNumber, evidence: i.inst.evidence,
+        jurisdictionName: i.inst.jurisdiction, lodgeName: i.inst.lodge, lodgeNumber: i.inst.lodgeNumber, rite: i.inst.rite, evidence: i.inst.evidence,
         authority: { email: i.inst.authority.email, username: i.inst.authority.username, fullName: i.inst.authority.name, password: i.inst.authority.password },
         venerable: { email: i.inst.venerable.email, username: i.inst.venerable.username, fullName: i.inst.venerable.name, password: i.inst.venerable.password },
       }, now);

@@ -12,6 +12,7 @@ import { sql } from "drizzle-orm";
 import { createDb } from "@/shared/database/client";
 import { EMAIL, envFile, generateKey, generatePassword, slugify, usernameFrom, validateInput, vercelScript, type Person, type SetupInput } from "@/setup/config";
 import { assertPasswordPolicy } from "@/core/auth/password";
+import { RITES, findRite } from "@/theme/rites";
 import { applyMigrations, checkDatabase, doctor, provision, type Check } from "@/setup/steps";
 import { Prompter } from "@/setup/prompt";
 
@@ -44,7 +45,7 @@ function fromEnv(): SetupInput {
   if (!!authority !== !!venerable) die("informe as duas contas institucionais (SETUP_AUTH_* e SETUP_VM_*) ou nenhuma");
   const inst = authority && venerable ? {
     jurisdiction: env.SETUP_JURISDICTION ?? die("SETUP_JURISDICTION ausente"), lodge: env.SETUP_LODGE ?? die("SETUP_LODGE ausente"),
-    lodgeNumber: env.SETUP_LODGE_NUMBER ? Number(env.SETUP_LODGE_NUMBER) : undefined, evidence: env.SETUP_EVIDENCE ?? die("SETUP_EVIDENCE ausente"), authority, venerable,
+    lodgeNumber: env.SETUP_LODGE_NUMBER ? Number(env.SETUP_LODGE_NUMBER) : undefined, rite: env.SETUP_RITE || undefined, evidence: env.SETUP_EVIDENCE ?? die("SETUP_EVIDENCE ausente"), authority, venerable,
   } : undefined;
   return {
     app: { name, slug: env.APP_SLUG ?? slugify(name), url: appUrl, mailFrom: env.APP_MAIL_FROM ?? `${name} <no-reply@${new URL(appUrl).hostname}>`, resendKey: env.RESEND_API_KEY || undefined },
@@ -121,10 +122,14 @@ async function wizard(p: Prompter): Promise<SetupInput> {
     const jurisdiction = await p.ask("Nome da Potência (obediência)", { help: "A Potência à qual a Loja pertence.", example: "Grande Oriente Maçônico do Brasil", validate: (v) => (v.length < 2 ? "Mínimo 2 caracteres." : null) });
     const lodge = await p.ask("Nome da primeira Loja", { help: "Nome da Loja, sem o número.", example: "Lealdade e Honra", validate: (v) => (v.length < 2 ? "Mínimo 2 caracteres." : null) });
     const num = await p.ask("Número da Loja", { help: "Somente dígitos.", example: "97", optional: true, validate: (v) => (/^[1-9]\d*$/.test(v) ? null : "Digite apenas um número inteiro, como 97.") });
+    p.say("\nRitos disponíveis (definem as cores do site, conforme o avental de Mestre):");
+    RITES.forEach((r, k) => p.say(`  ${String(k + 1).padStart(2)}. ${r.name}`));
+    const riteN = await p.ask("Rito da Loja", { help: "Digite o NÚMERO do Rito na lista acima. Sem Rito definido, o site usa a paleta padrão. Pode ser alterado depois pelo Venerável.", example: "1", optional: true, validate: (v) => (/^\d+$/.test(v) && RITES[Number(v) - 1] ? null : `Digite um número de 1 a ${RITES.length}.`) });
+    const rite = riteN ? RITES[Number(riteN) - 1].id : undefined;
     const evidence = await p.ask("Evidência da indicação pela Potência", { help: "Documento que comprova a indicação (ofício, protocolo etc.). Mínimo 10 caracteres; fica registrado na auditoria.", example: "Ofício nº 12/2026 da Potência", validate: (v) => (v.length >= 10 ? null : "Informe ao menos 10 caracteres (ex.: número e ano do ofício).") });
     const authority = await person("Administração da Potência", "Autoridade maçônica que cria Lojas e aprova Graus acima de Aprendiz.");
     const venerable = await person("Venerável Mestre da primeira Loja", "Aprova elevações de Grau e convites da Loja. Deve ser outra pessoa, diferente da Administração da Potência.");
-    inst = { jurisdiction, lodge, lodgeNumber: num ? Number(num) : undefined, evidence, authority, venerable };
+    inst = { jurisdiction, lodge, lodgeNumber: num ? Number(num) : undefined, rite, evidence, authority, venerable };
   }
   if (await p.confirm("Criar o administrador técnico?", true, "Conta que cuida da infraestrutura e dos módulos. Não tem autoridade maçônica nem acesso ao conteúdo dos membros. Recomendado.")) tech = await person("Administrador técnico", "Pessoa que opera o servidor e os módulos.");
   return { app: { name, slug, url, mailFrom, resendKey: resendKey || undefined }, db: { url: dbUrl, migrationUrl }, encKey, inst, tech };
@@ -146,7 +151,7 @@ async function main() {
   console.log("\nResumo (senhas não são exibidas):");
   console.log(`  Aplicação: ${input.app.name} (${input.app.slug}) em ${input.app.url}`);
   console.log(`  Banco: ${hostOf(input.db.url)}`);
-  if (input.inst) console.log(`  Potência: ${input.inst.jurisdiction} · Loja: ${input.inst.lodge}${input.inst.lodgeNumber ? ` nº ${input.inst.lodgeNumber}` : ""}\n  Evidência: ${input.inst.evidence}`);
+  if (input.inst) console.log(`  Potência: ${input.inst.jurisdiction} · Loja: ${input.inst.lodge}${input.inst.lodgeNumber ? ` nº ${input.inst.lodgeNumber}` : ""}\n  Rito: ${findRite(input.inst.rite)?.name ?? "padrão (sem Rito definido)"}\n  Evidência: ${input.inst.evidence}`);
   for (const [l, pp] of [["Administração da Potência", input.inst?.authority], ["Venerável Mestre", input.inst?.venerable], ["Administrador técnico", input.tech]] as const) if (pp) console.log(`  ${l}: ${pp.name} <${pp.email}> usuário ${pp.username}${pp.generated ? " (senha será gerada)" : ""}`);
   const plan = [
     flag("no-env") ? null : "gravar .env (backup do anterior, permissão 600)", "aplicar as migrações",
