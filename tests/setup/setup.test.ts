@@ -10,7 +10,7 @@ const person = (n: string, o: Partial<{ email: string; username: string; passwor
   name: `Pessoa ${n}`, email: o.email ?? `${n}@exemplo.org`, username: o.username ?? n, password: o.password ?? generatePassword(),
 });
 const base = (): SetupInput => ({
-  app: { name: "Rede Exemplo", slug: "rede-exemplo", url: "https://rede.exemplo.org", mailFrom: "Rede Exemplo <no-reply@exemplo.org>", resendKey: "re_x" },
+  app: { name: "Rede Exemplo", slug: "rede-exemplo", url: "https://rede.exemplo.org", mailFrom: "Rede Exemplo <no-reply@exemplo.org>", resendKey: "re_AbCdEf123456" },
   db: { url: "postgres://u:p@host:5432/db?sslmode=require" }, encKey: generateKey(),
   inst: { jurisdiction: "Potência Exemplo", lodge: "Loja Exemplo", lodgeNumber: 1, evidence: "Ofício nº 1/2026 da Potência", authority: person("potencia"), venerable: person("venerado") },
   tech: person("tecnico"),
@@ -70,7 +70,7 @@ describe("fundação e verificação", () => {
     expect(after.filter((c) => c.level === "error")).toEqual([]);
     expect(after.find((c) => c.name === "2FA das autoridades")?.level).toBe("warn"); // ainda não ativaram
     expect(after.find((c) => c.name === "Cadeia de auditoria")?.level).toBe("ok");
-    expect(after.find((c) => c.name === "Papel app_reader utilizável")?.level).toBe("ok");
+    expect(after.find((c) => c.name === "Indicador: SET ROLE app_reader")?.level).toBe("ok");
   });
   it("doctor sinaliza chave inválida e URL sem HTTPS", async () => {
     const db = await testDb();

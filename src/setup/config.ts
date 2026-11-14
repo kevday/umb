@@ -27,6 +27,8 @@ export function generatePassword(len = 20): string {
 
 /** Caracteres que quebrariam o .env ou o script de shell gerado. */
 const UNSAFE = /["\\`$\r\n]/;
+/** 32 bytes em base64 padrão, sem caracteres extras (a decodificação do Node ignora lixo; aqui não). */
+export const KEY_RE = /^[A-Za-z0-9+/]{43}=$/;
 export const EMAIL = /^[^\s@"\\`$]+@[^\s@"\\`$]+\.[^\s@"\\`$]+$/;
 
 export function validateInput(i: SetupInput): { errors: string[]; warnings: string[] } {
@@ -37,17 +39,21 @@ export function validateInput(i: SetupInput): { errors: string[]; warnings: stri
   need(i.app.name.trim().length >= 2 && i.app.name.length <= 60, "nome do produto: de 2 a 60 caracteres");
   safe(i.app.name, "nome do produto");
   need(/^[a-z0-9-]{2,40}$/.test(i.app.slug), "identificador (slug): letras minúsculas, números e hífen (2 a 40)");
+  safe(i.app.url, "APP_URL");
+  need(!/\s/.test(i.app.url), "APP_URL não pode ter espaços");
   try {
     const u = new URL(i.app.url);
     need(/^https?:$/.test(u.protocol), "APP_URL deve começar com http:// ou https://");
+    need(/^(\[[0-9a-f:]+\]|[A-Za-z0-9.-]+)(:\d{1,5})?$/i.test(u.host), "APP_URL: domínio com caracteres inválidos");
     if (u.protocol === "http:" && !/^(localhost|127\.|\[::1\])/.test(u.hostname)) warnings.push("APP_URL sem HTTPS: em produção use https:// (cookies seguros e HSTS)");
   } catch { errors.push("APP_URL inválida"); }
   safe(i.app.mailFrom, "remetente de e-mail");
+  if (i.app.resendKey) need(/^[A-Za-z0-9_-]{8,200}$/.test(i.app.resendKey), "RESEND_API_KEY: apenas letras, números, hífen e sublinhado (8 a 200 caracteres)");
   if (!i.app.resendKey) warnings.push("sem RESEND_API_KEY: e-mails (convites, redefinição de senha) só vão para o log");
   need(/^postgres(ql)?:\/\//.test(i.db.url), "DATABASE_URL deve começar com postgres:// ou postgresql://");
   safe(i.db.url, "DATABASE_URL (codifique caracteres especiais da senha com %XX)");
   if (i.db.migrationUrl) { need(/^postgres(ql)?:\/\//.test(i.db.migrationUrl), "URL de migração inválida"); safe(i.db.migrationUrl, "URL de migração"); }
-  need(Buffer.from(i.encKey, "base64").length === 32, "DATA_ENCRYPTION_KEY deve ter 32 bytes em base64");
+  need(KEY_RE.test(i.encKey), "DATA_ENCRYPTION_KEY deve ser exatamente 32 bytes em base64 (44 caracteres)");
 
   const people: [string, Person][] = [];
   if (i.inst) people.push(["Administração da Potência", i.inst.authority], ["Venerável Mestre", i.inst.venerable]);
@@ -77,28 +83,31 @@ export function validateInput(i: SetupInput): { errors: string[]; warnings: stri
 }
 
 const q = (v: string) => `"${v}"`;
-/** Conteúdo do .env (valores já validados contra caracteres inseguros). */
+/** Conteúdo do .env: todos os valores entre aspas (já validados contra caracteres inseguros). */
 export function envFile(i: SetupInput): string {
   const host = new URL(i.app.url).host;
   const lines = [
     "# Gerado por `npm run setup`. Não versionar. Permissões 600.",
-    `APP_NAME=${q(i.app.name)}`, `APP_SLUG=${i.app.slug}`, `APP_DOMAIN=${host}`, `APP_URL=${i.app.url}`, `APP_MAIL_FROM=${q(i.app.mailFrom)}`,
-    `DATABASE_URL=${i.db.url}`,
+    `APP_NAME=${q(i.app.name)}`, `APP_SLUG=${q(i.app.slug)}`, `APP_DOMAIN=${q(host)}`, `APP_URL=${q(i.app.url)}`, `APP_MAIL_FROM=${q(i.app.mailFrom)}`,
+    `DATABASE_URL=${q(i.db.url)}`,
   ];
-  if (i.db.migrationUrl) lines.push(`MIGRATION_DATABASE_URL=${i.db.migrationUrl}`);
-  lines.push(`DATA_ENCRYPTION_KEY=${i.encKey}`, `RESEND_API_KEY=${i.app.resendKey ?? ""}`);
+  if (i.db.migrationUrl) lines.push(`MIGRATION_DATABASE_URL=${q(i.db.migrationUrl)}`);
+  lines.push(`DATA_ENCRYPTION_KEY=${q(i.encKey)}`, `RESEND_API_KEY=${q(i.app.resendKey ?? "")}`);
   return lines.join("\n") + "\n";
 }
 
-/** Script POSIX (sh) que envia as variáveis do .env para a Vercel (produção). Requer `vercel login` e `vercel link`. */
+/**
+ * Script POSIX (sh) que envia as variáveis do .env para o ambiente "production" da Vercel.
+ * O .env é LIDO como texto (nunca executado com `.` nem `eval`): nada do que estiver nele roda como comando.
+ * Requer `vercel login` e `vercel link`.
+ */
 export const vercelScript = () => `#!/bin/sh
-# Envia as variáveis do .env para o ambiente "production" da Vercel.
-# Pré-requisitos: npm i -g vercel; vercel login; vercel link (na pasta do projeto).
 set -eu
 [ -f .env ] || { echo "arquivo .env não encontrado" >&2; exit 1; }
-set -a; . ./.env; set +a
+# lê VAR do .env como texto: primeira ocorrência, sem as aspas externas
+get() { sed -n "s/^$1=//p" .env | head -n 1 | sed 's/^"\\(.*\\)"$/\\1/'; }
 for v in APP_NAME APP_SLUG APP_DOMAIN APP_URL APP_MAIL_FROM DATABASE_URL DATA_ENCRYPTION_KEY RESEND_API_KEY; do
-  eval "val=\\"\\\${$v:-}\\""
+  val=$(get "$v")
   if [ -z "$val" ]; then echo "- $v vazio, ignorado"; continue; fi
   printf '%s' "$val" | vercel env add "$v" production --force >/dev/null && echo "+ $v enviado"
 done

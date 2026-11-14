@@ -8,7 +8,7 @@ import { users } from "@/shared/database/schema";
 import { hashPassword } from "@/core/auth/password";
 import { bootstrapFounders } from "@/access-control/services/institution";
 import { verifyAuditChain } from "@/access-control/audit/store";
-import type { Person, SetupInput } from "./config";
+import { KEY_RE, type Person, type SetupInput } from "./config";
 
 export type Level = "ok" | "warn" | "error";
 export interface Check { name: string; level: Level; detail: string }
@@ -51,10 +51,14 @@ export async function createTechAdmin(db: Db, p: Person, now = new Date()) {
 
 /** Cria o que falta, sem recriar o que já existe (pode ser executado de novo com segurança). */
 export async function provision(db: Db, i: Pick<SetupInput, "inst" | "tech">, now = new Date()) {
-  const out = { founders: "ignorado" as "criado" | "já existia" | "ignorado", tech: "ignorado" as "criado" | "já existia" | "ignorado" };
+  const out = { founders: "ignorado" as "criado" | "já existia" | "já existia, mas sem autoridade ativa" | "ignorado", tech: "ignorado" as "criado" | "já existia" | "ignorado" };
   if (i.inst) {
     const has = await one<{ n: number }>(db, sql`select count(*)::int as n from jurisdictions`);
-    if (has.n > 0) out.founders = "já existia";
+    if (has.n > 0) {
+      // não recria sozinho: sem autoridade ativa é preciso decisão humana (ver docs/operacao.md)
+      const act = await one<{ n: number }>(db, sql`select count(distinct user_id)::int as n from office_assignments where name in ('Administração da Potência', 'Venerável Mestre') and starts_at <= now() and (ends_at is null or ends_at > now())`);
+      out.founders = act.n > 0 ? "já existia" : "já existia, mas sem autoridade ativa";
+    }
     else {
       await bootstrapFounders(db, {
         jurisdictionName: i.inst.jurisdiction, lodgeName: i.inst.lodge, lodgeNumber: i.inst.lodgeNumber, rite: i.inst.rite, evidence: i.inst.evidence,
@@ -65,11 +69,11 @@ export async function provision(db: Db, i: Pick<SetupInput, "inst" | "tech">, no
     }
   }
   if (i.tech) {
-    const has = await one<{ n: number }>(db, sql`select count(*)::int as n from users where is_technical_admin`);
+    const has = await one<{ n: number }>(db, sql`select count(*)::int as n from users where is_technical_admin and deleted_at is null`);
     if (has.n > 0) out.tech = "já existia";
     else {
       const clash = await db.select({ id: users.id }).from(users).where(eq(users.email, i.tech.email.toLowerCase()));
-      if (clash.length) throw new Error("o e-mail do administrador técnico já pertence a outra conta");
+      if (clash.length) throw new Error("o e-mail do administrador técnico já pertence a outra conta (possivelmente excluída): use outro e-mail");
       await createTechAdmin(db, i.tech, now);
       out.tech = "criado";
     }
@@ -81,7 +85,7 @@ export async function doctor(db: Db, env: Record<string, string | undefined>): P
   const out: Check[] = [], add = (name: string, level: Level, detail: string) => out.push({ name, level, detail });
   const major = Number(process.versions.node.split(".")[0]);
   add("Node.js", major >= 20 ? "ok" : "error", `v${process.versions.node} (mínimo 20)`);
-  const kok = Buffer.from(env.DATA_ENCRYPTION_KEY ?? "", "base64").length === 32;
+  const kok = KEY_RE.test(env.DATA_ENCRYPTION_KEY ?? "");
   add("DATA_ENCRYPTION_KEY", kok ? "ok" : "error", kok ? "32 bytes em base64" : "inválida ou ausente: deve ter 32 bytes em base64");
   const url = env.APP_URL ?? "";
   add("APP_URL", /^https:\/\//.test(url) ? "ok" : /^http:\/\/(localhost|127\.)/.test(url) ? "warn" : "error", url ? (/^https:\/\//.test(url) ? url : `${url} (produção exige HTTPS)`) : "ausente");
@@ -95,9 +99,11 @@ export async function doctor(db: Db, env: Record<string, string | undefined>): P
     const m = await one<{ n: number }>(db, sql`select count(*)::int as n from drizzle.__drizzle_migrations`).catch(() => ({ n: 0 }));
     add("Migrações", m.n === journal ? "ok" : "error", `${m.n} de ${journal} aplicadas${m.n === journal ? "" : " (rode npm run db:migrate)"}`);
     const rls = await one<{ n: number }>(db, sql`select count(*)::int as n from pg_class c join pg_namespace s on s.oid = c.relnamespace where s.nspname = 'public' and c.relrowsecurity`);
-    add("RLS nas tabelas de conteúdo", rls.n >= 7 ? "ok" : "error", `${rls.n} tabelas com RLS (esperado: 7 ou mais)`);
-    try { await db.transaction(async (tx) => { await tx.execute(sql`set local role app_reader`); await tx.execute(sql`select 1`); }); add("Papel app_reader utilizável", "ok", "SET ROLE funciona"); }
-    catch (e) { add("Papel app_reader utilizável", "error", `${(e as Error).message}. Rode: GRANT app_reader TO <usuário da aplicação>;`); }
+    add("Indicador: RLS habilitado", rls.n >= 7 ? "ok" : "error", `${rls.n} tabelas com RLS (esperado: 7 ou mais). Indica configuração, não prova isolamento`);
+    try { await db.transaction(async (tx) => { await tx.execute(sql`set local role app_reader`); await tx.execute(sql`select 1`); }); add("Indicador: SET ROLE app_reader", "ok", "funciona (não prova que as políticas estejam corretas)"); }
+    catch (e) { add("Indicador: SET ROLE app_reader", "error", `${(e as Error).message}. Rode: GRANT app_reader TO <usuário da aplicação>;`); }
+    const lp = await leastPrivilege(db);
+    add("Privilégios mínimos do app_reader", lp.length === 0 ? "ok" : "error", lp.length === 0 ? "só o necessário (conferido no catálogo do banco)" : `fora do esperado: ${lp.join("; ")}`);
     const j = await one<{ n: number }>(db, sql`select count(*)::int as n from jurisdictions`);
     add("Estrutura institucional", j.n > 0 ? "ok" : "error", j.n > 0 ? `${j.n} jurisdição(ões)` : "vazia: rode npm run setup para criar a fundação");
     const act = (name: string) => sql`select count(distinct user_id)::int as n from office_assignments where name = ${name} and starts_at <= now() and (ends_at is null or ends_at > now())`;
@@ -117,3 +123,33 @@ export async function doctor(db: Db, env: Record<string, string | undefined>): P
   }
   return out;
 }
+
+/** O que o papel `app_reader` pode fazer (nada além disto). Alterou uma migração de acesso? Atualize aqui. */
+const EXPECTED_TABLE: Record<string, string[]> = {
+  SELECT: ["communities", "community_topics", "community_replies", "scrapbook_posts", "friendships", "profiles"],
+  INSERT: ["communities", "community_topics", "community_replies", "scrapbook_posts", "friendships", "reports"],
+  DELETE: ["friendships", "scrapbook_posts"],
+};
+const EXPECTED_UPDATE_COLUMNS = ["friendships", "profiles"];
+
+/** Compara os privilégios reais do app_reader com o esperado (catálogo do PostgreSQL). Devolve as divergências. */
+export async function leastPrivilege(db: Db): Promise<string[]> {
+  const r = rows<{ t: string; priv: string; has: boolean }>(await db.execute(sql`
+    select c.relname as t, p.priv, has_table_privilege('app_reader', c.oid, p.priv) as has
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace
+    cross join (values ('SELECT'), ('INSERT'), ('UPDATE'), ('DELETE'), ('TRUNCATE'), ('REFERENCES'), ('TRIGGER')) p(priv)
+    where n.nspname = 'public' and c.relkind = 'r'`));
+  const cols = rows<{ t: string; any: boolean }>(await db.execute(sql`
+    select c.relname as t, has_any_column_privilege('app_reader', c.oid, 'UPDATE') as any
+    from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relkind = 'r'`));
+  const out: string[] = [];
+  for (const x of r) {
+    const want = (EXPECTED_TABLE[x.priv] ?? []).includes(x.t);
+    if (x.has && !want) out.push(`${x.priv} em ${x.t}`);
+    if (!x.has && want) out.push(`falta ${x.priv} em ${x.t}`);
+  }
+  for (const x of cols) if (x.any && !EXPECTED_UPDATE_COLUMNS.includes(x.t) && !r.some((y) => y.t === x.t && y.priv === "UPDATE" && y.has)) out.push(`UPDATE (colunas) em ${x.t}`);
+  return out;
+}
+
+export const DOCTOR_NOTE = "Estes são indicadores básicos de configuração. Eles NÃO validam o isolamento dos dados: isso é coberto pelos testes automatizados (paridade ACE × SQL e RLS) e deve ser confirmado por um teste de invasão.";

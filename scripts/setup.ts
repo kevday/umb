@@ -13,7 +13,7 @@ import { createDb } from "@/shared/database/client";
 import { EMAIL, envFile, generateKey, generatePassword, slugify, usernameFrom, validateInput, vercelScript, type Person, type SetupInput } from "@/setup/config";
 import { assertPasswordPolicy } from "@/core/auth/password";
 import { RITES, findRite } from "@/theme/rites";
-import { applyMigrations, checkDatabase, doctor, provision, type Check } from "@/setup/steps";
+import { DOCTOR_NOTE, applyMigrations, checkDatabase, doctor, provision, type Check } from "@/setup/steps";
 import { Prompter } from "@/setup/prompt";
 
 const argv = new Set(process.argv.slice(2));
@@ -171,12 +171,14 @@ async function main() {
   console.log("  ✓ migrações aplicadas");
   const db = createDb(input.db.url);
   const done = await provision(db, input);
-  console.log(`  ✓ fundação: ${done.founders}; administrador técnico: ${done.tech}`);
+  console.log(`  ${done.founders.includes("sem autoridade") ? "✗" : "✓"} fundação: ${done.founders}; administrador técnico: ${done.tech}`);
+  if (done.founders.includes("sem autoridade")) console.log("    Há estrutura institucional, mas nenhuma Administração da Potência/Venerável ativa. Isso não é recriado automaticamente: veja docs/operacao.md (recuperação).");
 
   Object.assign(process.env, { APP_NAME: input.app.name, APP_URL: input.app.url, DATA_ENCRYPTION_KEY: input.encKey, RESEND_API_KEY: input.app.resendKey ?? "" });
   console.log("\nVerificação final:");
   const final = await doctor(db, process.env);
   show(final);
+  console.log(`\n  Observação: ${DOCTOR_NOTE}`);
 
   const made = [["Administração da Potência", input.inst?.authority, done.founders], ["Venerável Mestre", input.inst?.venerable, done.founders], ["Administrador técnico", input.tech, done.tech]] as const;
   const created = made.filter(([, p, st]) => p && st === "criado");
