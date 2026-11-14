@@ -1,3 +1,4 @@
+import Link from "next/link";
 import QRCode from "qrcode";
 import { requirePage } from "@/web/session";
 import { getDb } from "@/web/db";
@@ -52,6 +53,15 @@ export default async function Settings({ searchParams }: { searchParams: Promise
             </form>
             {th.source === "personal" && <form action={themeReset}><button className="sec">Voltar ao padrão (Rito da minha Loja)</button></form>}
             <p className="mut">O sistema ajusta o tom automaticamente para manter o texto legível nos modos claro e escuro.</p>
+          </div>
+        </>
+      )}
+      {p.subject.technicalAdmin && (
+        <>
+          <h2>Interface</h2>
+          <div className="card stack">
+            <p>Personalize a aparência das páginas de entrada (login, cadastro e redefinição de senha). Esta opção existe apenas para a administração técnica.</p>
+            <Link href="/settings/interface">Personalizar a página de entrada</Link>
           </div>
         </>
       )}

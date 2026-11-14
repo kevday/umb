@@ -131,3 +131,11 @@ export const rateLimits = pgTable("rate_limits", {
   count: integer("count").notNull(),
   windowStart: ts("window_start").notNull(),
 });
+
+/** Configurações da instalação (ex.: aparência das páginas de entrada). Só a aplicação como dono acessa; app_reader não tem acesso. */
+export const siteSettings = pgTable("site_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").notNull(),
+  updatedAt: ts("updated_at").defaultNow().notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id),
+});

@@ -30,3 +30,15 @@ A cor do Rito é usada como **orla**: faixa no topo, linha dupla sob o menu e su
 - O CSS do tema é injetado no layout com *nonce* (compatível com a CSP estrita) e só contém variáveis hexadecimais geradas no servidor.
 - `lodges.rite` e `profiles.theme_color` têm `CHECK` no banco. A mudança de Rito é auditada (`lodge.rite`).
 - No configurador: pergunta de Rito (ou `SETUP_RITE=brasileiro` no modo automático).
+
+## Páginas de entrada (login, cadastro, redefinição de senha)
+Usam uma paleta **nobre e sóbria**, separada da paleta de dentro da rede: fundo profundo com metal (ouro ou prata) como acento, igual nos modos claro e escuro. Padrão: **azul e dourado**.
+
+Paletas prontas: Azul e dourado, Bordô e dourado, Verde-esmeralda e dourado, Violeta e dourado, Preto e dourado e Azul-marinho e prata. Também há **Personalizada** (duas cores à escolha) e uma **frase de boas-vindas** de até 120 caracteres. O contraste é ajustado automaticamente, qualquer que seja a cor.
+
+### Quem pode alterar: somente a administração técnica
+- Local: *Configurações → Interface → Personalizar a página de entrada* (`/settings/interface`).
+- **Nenhum outro usuário** tem acesso: membros, Venerável e Administração da Potência recebem 404 na página, a opção nem aparece no menu deles e a ação é recusada no servidor.
+- A ação exige conta técnica **e sessão com 2FA**. Cada alteração é auditada (`site.public_look`).
+- As configurações ficam na tabela `site_settings`, que o papel de conteúdo (`app_reader`) não lê nem altera.
+- Valor corrompido no banco cai no padrão: a página de login nunca quebra.

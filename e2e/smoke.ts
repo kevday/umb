@@ -125,6 +125,14 @@ async function enroll(b: Browser) {
   ok(has(await tec.submit("/admin", "Ativar", { }), "Confirme o 2FA"), "alterar módulos exige 2FA");
   ok(has(await enroll(tec), "2FA ativado"), "2FA da conta técnica");
   ok(has(await tec.submit("/admin", "Ativar"), "Módulo atualizado"), "administração técnica ativa módulo");
+  console.log("Interface das páginas de entrada (só administrador técnico)");
+  ok((await nov.get("/settings/interface")).status === 404 && (await vm.get("/settings/interface")).status === 404 && (await pot.get("/settings/interface")).status === 404, "membro, Venerável e Potência não enxergam a página Interface (404)");
+  ok(!has(await vm.get("/settings"), "Personalizar a página de entrada"), "a opção nem aparece nas configurações deles");
+  ok(has(await tec.get("/settings"), "Personalizar a página de entrada") && has(await tec.get("/settings/interface"), "Frase de boas-vindas"), "o administrador técnico vê a opção");
+  const lk = await tec.submit("/settings/interface", "Salvar", { preset: "bordo-dourado", tagline: "Entre, irmão" });
+  ok(has(lk, "atualizada"), "administrador técnico salva a aparência");
+  const lg = await anon.get("/login");
+  ok(has(lg, "Entre, irmão") && has(lg, 'class="noble"') && /--decor:#c9a24b/i.test(lg.html), "página de login usa a paleta nobre escolhida (bordô e dourado)");
   ok(has(await nov.get("/"), "Início"), "sessão segue válida");
   console.log(`\n${n - fails}/${n} verificações passaram`);
   process.exit(fails ? 1 : 0);

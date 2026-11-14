@@ -4,6 +4,7 @@ import * as auth from "@/core/auth/service";
 import { Forbidden } from "@/core/errors";
 import { deleteAccount, updateProfile } from "@/core/account";
 import { setThemeColor } from "@/theme/service";
+import { resetPublicLook, setPublicLook } from "@/theme/site";
 import * as inst from "@/access-control/services/institution";
 import * as com from "@/core/social/communities";
 import * as fr from "@/core/social/friends";
@@ -134,3 +135,9 @@ export async function accountDelete(f: FormData) {
 export async function themeSet(f: FormData) { await run("/settings", (p, db) => setThemeColor(db, p.session.userId, str(f, "color")), "Cor aplicada."); }
 export async function themeReset(f: FormData) { void f; await run("/settings", (p, db) => setThemeColor(db, p.session.userId, null), "Voltou ao padrão da sua Loja."); }
 export async function riteSet(f: FormData) { await run("/institution", (p, db) => inst.setLodgeRite(db, p.ctx, str(f, "lodgeId"), str(f, "rite") || null), "Rito da Loja atualizado."); }
+
+// Interface das páginas de entrada: SOMENTE administração técnica (verificado no servidor, com 2FA)
+export async function lookSet(f: FormData) {
+  await run("/settings/interface", (p, db) => setPublicLook(db, p.ctx, { preset: str(f, "preset"), primary: str(f, "primary"), accent: str(f, "accent"), tagline: str(f, "tagline") }), "Aparência da página de entrada atualizada.");
+}
+export async function lookReset() { await run("/settings/interface", (p, db) => resetPublicLook(db, p.ctx), "Aparência restaurada para o padrão."); }

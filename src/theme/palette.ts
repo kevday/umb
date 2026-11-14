@@ -68,3 +68,5 @@ export function buildTheme(decor: string, decor2?: string): Theme {
 const block = (v: Vars) => Object.entries(v).map(([k, x]) => `--${k}:${x}`).join(";");
 /** CSS com variáveis. Só contém hexadecimais gerados aqui (nada vem direto do usuário). */
 export const themeCss = (t: Theme) => `:root{${block(t.light)}}@media (prefers-color-scheme:dark){:root{${block(t.dark)}}}`;
+
+export { clamp, fit, hsl, rgbToHsl, toRgb };

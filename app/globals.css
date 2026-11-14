@@ -31,3 +31,12 @@ label{display:block;font-size:14px;color:var(--mut);margin-top:8px}
 h1::after{content:"";display:block;width:56px;height:3px;margin-top:6px;border-radius:2px;background:var(--decor)}
 :focus-visible{outline:3px solid var(--link);outline-offset:2px}
 .swatches{display:flex;gap:8px;align-items:center}
+.noble{min-height:100vh;background:radial-gradient(1100px 520px at 50% -8%,var(--tint),var(--bg) 72%)}
+.noble-head{text-align:center;padding:56px 16px 0}
+.noble-brand{display:block;font-family:Georgia,"Times New Roman",serif;font-size:36px;font-weight:700;letter-spacing:.04em;color:var(--brand)}
+.noble-brand::after{content:"";display:block;width:96px;height:2px;margin:16px auto 0;background:linear-gradient(90deg,transparent,var(--decor),transparent)}
+.noble-tag{display:block;margin-top:14px;color:var(--mut);font-size:14px;letter-spacing:.14em;text-transform:uppercase}
+.noble .narrow{margin:28px auto 0}
+.noble .card{border-color:var(--bd);box-shadow:0 10px 30px rgba(0,0,0,.4)}
+.noble h1::after{display:none}
+.noble input,.noble select{background:var(--bg);border-color:var(--bd)}
