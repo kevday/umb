@@ -1,5 +1,6 @@
 "use server";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import * as auth from "@/core/auth/service";
 import { Forbidden, Invalid } from "@/core/errors";
 import { deleteAccount, updateProfile } from "@/core/account";
@@ -12,6 +13,7 @@ import * as sb from "@/core/social/scrapbook";
 import { setModuleEnabled } from "@/modules";
 import { getDb } from "@/web/db";
 import { back, done, str } from "@/web/form";
+import { throttle } from "@/core/auth/throttle";
 import { appUrl, sendMail } from "@/web/mailer";
 import { clearSessionCookie, requirePage, sessionToken } from "@/web/session";
 
@@ -111,6 +113,8 @@ export async function totpConfirm(f: FormData) {
 }
 export async function emailChangeRequest(f: FormData) {
   await run("/settings", async (p, db) => {
+    const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "desconhecido";
+    await throttle(db, `email-change:${p.session.userId}:${ip}`, 5, 60 * 60_000);
     const r = await auth.requestEmailChange(db, p.session, String(f.get("current") ?? ""), str(f, "email"));
     try { await sendMail(r.email, "Confirme seu novo e-mail", `Confirme a alteração do endereço de e-mail (válido por 1 hora): ${appUrl()}/email/change?token=${r.token}`); }
     catch (e) { console.error("[mail:email-change] envio falhou", e); throw new Invalid("não foi possível enviar a confirmação. Verifique o Resend e tente novamente"); }
