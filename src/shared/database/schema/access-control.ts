@@ -80,7 +80,7 @@ export const degreeAssignments = pgTable(
   (t) => [
     check(
       "dual_approval",
-      sql`${t.origin} = 'bootstrap' OR (${t.approvedBy} <> ${t.requestedBy} AND ${t.approvedBy} <> ${t.userId})`,
+      sql`${t.origin} = 'bootstrap' OR (${t.origin} = 'potencia_direct' AND ${t.degree} = 1) OR (${t.approvedBy} <> ${t.requestedBy} AND ${t.approvedBy} <> ${t.userId})`,
     ),
   ],
 );
