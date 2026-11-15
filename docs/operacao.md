@@ -12,6 +12,11 @@
 4. `npm run bootstrap` com as variáveis `BOOT_*` (evidência e duas pessoas) e `npm run tech-admin`. Peça a cada autoridade que ative o 2FA no primeiro acesso.
 5. Deploy. `APP_URL` deve ser o endereço HTTPS público.
 
+## Recuperação de conta
+- **Perda do autenticador:** na tela de verificação 2FA, após autenticar a senha, o titular pode solicitar um link enviado ao e-mail já verificado. O link expira em 15 minutos, é de uso único e revoga todas as sessões. Depois, o titular entra novamente e cadastra um novo autenticador.
+- **Troca de e-mail:** em Configurações, informar o novo endereço e a senha atual. A alteração só ocorre após confirmar o link enviado ao novo endereço; o link expira em uma hora e as sessões são encerradas.
+- **E-mail de cadastro não recebido:** usar “Reenviar confirmação de e-mail” na tela de login. A resposta é uniforme para não revelar se o endereço está cadastrado.
+
 ## Rotina
 - **Backups:** diários com retenção de 30 dias; teste de restauração trimestral.
 - **Rotação de `DATA_ENCRYPTION_KEY`:** exige recifrar `user_totp.secret_enc` (ou pedir novo cadastro de 2FA).
