@@ -12,7 +12,7 @@ const MIN = 60_000, DAY = 24 * 60 * MIN;
 export const SESSION_ABSOLUTE = 30 * DAY, SESSION_IDLE = 7 * DAY;
 const MAX_FAILS = 5, LOCK_MS = 15 * MIN;
 
-export interface SessionInfo { sessionId: string; userId: string; mfaVerified: boolean }
+export interface SessionInfo { sessionId: string; userId: string; mfaVerified: boolean; mfaRequired: boolean }
 
 export async function login(db: Db, i: { email: string; password: string; ip?: string; userAgent?: string }, now = new Date()) {
   const [u] = await db.select().from(users).where(eq(users.email, i.email.trim().toLowerCase()));
@@ -37,10 +37,18 @@ export async function login(db: Db, i: { email: string; password: string; ip?: s
 export async function validateSession(db: Db, token: string, now = new Date()): Promise<SessionInfo | null> {
   const [s] = await db.select().from(sessions).where(eq(sessions.tokenHash, sha256(token)));
   if (!s || s.revokedAt || s.expiresAt <= now || s.lastUsedAt.getTime() + SESSION_IDLE <= now.getTime()) return null;
-  const [u] = await db.select({ d: users.deletedAt }).from(users).where(eq(users.id, s.userId));
+  const [[u], [totp]] = await Promise.all([
+    db.select({ d: users.deletedAt }).from(users).where(eq(users.id, s.userId)),
+    db.select({ confirmedAt: userTotp.confirmedAt }).from(userTotp).where(eq(userTotp.userId, s.userId)),
+  ]);
   if (!u || u.d) return null;
-  await db.update(sessions).set({ lastUsedAt: now }).where(eq(sessions.id, s.id));
-  return { sessionId: s.id, userId: s.userId, mfaVerified: s.mfaVerified };
+  // Evita uma escrita no PostgreSQL em toda navegação; a janela de inatividade tem tolerância máxima de 60 s.
+  const touchBefore = new Date(now.getTime() - 60_000);
+  if (s.lastUsedAt < touchBefore) {
+    await db.update(sessions).set({ lastUsedAt: now })
+      .where(and(eq(sessions.id, s.id), lt(sessions.lastUsedAt, touchBefore)));
+  }
+  return { sessionId: s.id, userId: s.userId, mfaVerified: s.mfaVerified, mfaRequired: !!totp?.confirmedAt };
 }
 
 export async function logout(db: Db, token: string, now = new Date()) {
