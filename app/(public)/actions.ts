@@ -43,6 +43,12 @@ export async function verifyAction(f: FormData) {
   done("/login", "E-mail confirmado. Entre para continuar.");
 }
 
+export async function emailChangeConfirmAction(f: FormData) {
+  const token = str(f, "token");
+  await auth.confirmEmailChange(getDb(), token).catch((e) => back(`/email/change?token=${encodeURIComponent(token)}`, e));
+  done("/login", "E-mail atualizado. Entre novamente com o novo endereço.");
+}
+
 export async function forgotAction(f: FormData) {
   await throttle(getDb(), `forgot:${await ipOf()}`, 5, 10 * 60_000).catch((e) => back("/forgot", e));
   const email = str(f, "email");
