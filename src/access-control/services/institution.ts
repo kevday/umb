@@ -114,11 +114,19 @@ export async function setLodgeRite(db: Db, ctx: Ctx, lodgeId: string, rite: stri
 export async function createInvitation(db: Db, ctx: Ctx, i: { lodgeId: string; email: string; intendedDegree: number }, now = new Date()) {
   const { lodge } = await lodgeAuthority(db, ctx, i.lodgeId, [SEC, VM], now);
   if (!Number.isInteger(i.intendedDegree) || i.intendedDegree < 1 || i.intendedDegree > 33) throw new Invalid("Grau inválido");
+  const email = i.email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new Invalid("endereço de e-mail inválido");
+  const [existingUser] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
+  if (existingUser) throw new Invalid("este e-mail já pertence a uma conta. Não é necessário criar outro convite; o titular deve recuperar o acesso ou solicitar transferência à secretaria.");
+  const [existingInvite] = await db.select({ id: invitations.id }).from(invitations).where(and(
+    eq(invitations.email, email), isNull(invitations.usedAt), gt(invitations.expiresAt, now),
+  ));
+  if (existingInvite) throw new Invalid("já existe um convite válido para este e-mail");
   const token = randomToken();
   const [inv] = await db.transaction(async (t) => {
     const tx = t as unknown as Db;
     const r = await tx.insert(invitations).values({
-      lodgeId: i.lodgeId, email: i.email.trim().toLowerCase(), intendedDegree: i.intendedDegree,
+      lodgeId: i.lodgeId, email, intendedDegree: i.intendedDegree,
       tokenHash: sha256(token), createdBy: ctx.userId, expiresAt: new Date(now.getTime() + 14 * DAY),
     }).returning();
     await appendAudit(tx, { actorId: ctx.userId, action: "invitation.created", payload: { ...scopeOf(lodge), invitationId: r[0].id, degree: i.intendedDegree } }, now);
