@@ -1,5 +1,5 @@
 import { Flash, type SP } from "@/web/ui";
-import { emailChangeConfirmAction } from "../actions";
+import { emailChangeConfirmAction } from "../../actions";
 
 export default async function ConfirmEmailChange({ searchParams }: { searchParams: Promise<SP> }) {
   const s = await searchParams;
