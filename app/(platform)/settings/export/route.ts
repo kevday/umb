@@ -6,6 +6,7 @@ import { getSession } from "@/web/session";
 export async function GET() {
   const s = await getSession();
   if (!s) return new Response("não autenticado", { status: 401 });
+  if (s.mfaRequired && !s.mfaVerified) return new Response("verificação em duas etapas obrigatória", { status: 403 });
   const data = await exportMyData(getDb(), s.userId);
   return new Response(JSON.stringify(data, null, 2), {
     headers: { "content-type": "application/json; charset=utf-8", "content-disposition": 'attachment; filename="meus-dados.json"' },
