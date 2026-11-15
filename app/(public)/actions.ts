@@ -49,8 +49,24 @@ export async function registerAction(f: FormData) {
   if (String(f.get("password")) !== String(f.get("password2"))) back(path, new (await import("@/core/errors")).Invalid("as senhas não conferem"));
   const email = str(f, "email");
   const r = await registerWithInvitation(getDb(), { token, email, username: str(f, "username").toLowerCase(), fullName: str(f, "fullName"), password: String(f.get("password") ?? "") }).catch((e) => back(path, e));
-  await sendMail(email, "Confirme seu e-mail", `Confirme seu cadastro: ${appUrl()}/verify?token=${r.verifyToken}`);
-  done("/login", "Cadastro criado. Confirme o e-mail pelo link enviado.");
+  try {
+    await sendMail(email, "Confirme seu e-mail", `Confirme seu cadastro: ${appUrl()}/verify?token=${r.verifyToken}`);
+    done("/login", "Cadastro criado. Confirme o e-mail pelo link enviado.");
+  } catch (e) {
+    console.error("[mail:register] conta criada, mas o envio de confirmação falhou", e);
+    done("/verify/resend", "A conta foi criada, mas não conseguimos enviar o e-mail. Informe o endereço cadastrado para solicitar novo envio.");
+  }
+}
+
+export async function resendVerificationAction(f: FormData) {
+  await throttle(getDb(), `verify-resend:${await ipOf()}`, 3, 60 * 60_000).catch((e) => back("/verify/resend", e));
+  const email = str(f, "email");
+  const token = await auth.requestEmailVerification(getDb(), email);
+  if (token) {
+    try { await sendMail(email, "Confirme seu e-mail", `Confirme seu cadastro: ${appUrl()}/verify?token=${token}`); }
+    catch (e) { console.error("[mail:verify-resend] envio falhou", e); }
+  }
+  done("/login", "Se a conta existir e ainda não estiver verificada, enviaremos uma nova mensagem.");
 }
 
 export async function verifyAction(f: FormData) {
