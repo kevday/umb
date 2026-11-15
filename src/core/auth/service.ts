@@ -110,17 +110,17 @@ export async function issueEmailToken(db: Db, userId: string, kind: "verify" | "
   return token;
 }
 
-async function consumeToken(db: Db, token: string, kind: "verify" | "reset", now: Date) {
+async function consumeToken(db: Db, token: string, kind: "verify" | "reset" | "change_email", now: Date) {
   const [row] = await db.update(emailTokens).set({ usedAt: now })
     .where(and(eq(emailTokens.tokenHash, sha256(token)), eq(emailTokens.kind, kind), isNull(emailTokens.usedAt), gt(emailTokens.expiresAt, now)))
     .returning();
   if (!row) throw new Invalid("link inválido ou expirado");
-  return row.userId;
+  return row;
 }
 
 export async function verifyEmail(db: Db, token: string, now = new Date()) {
-  const id = await consumeToken(db, token, "verify", now);
-  await db.update(users).set({ emailVerifiedAt: now }).where(eq(users.id, id));
+  const row = await consumeToken(db, token, "verify", now);
+  await db.update(users).set({ emailVerifiedAt: now }).where(eq(users.id, row.userId));
 }
 
 /** Não revela se o e-mail existe: devolve o token (para envio) ou null. */
@@ -130,11 +130,39 @@ export async function requestPasswordReset(db: Db, email: string, now = new Date
 }
 
 export async function resetPassword(db: Db, token: string, newPassword: string, now = new Date()) {
-  const id = await consumeToken(db, token, "reset", now);
-  const [u] = await db.select().from(users).where(eq(users.id, id));
+  const row = await consumeToken(db, token, "reset", now);
+  const [u] = await db.select().from(users).where(eq(users.id, row.userId));
   assertPasswordPolicy(newPassword, u.email, u.username);
-  await db.update(users).set({ passwordHash: await hashPassword(newPassword), failedAttempts: 0, lockedUntil: null }).where(eq(users.id, id));
-  await revokeAllSessions(db, id, undefined, now);
+  await db.update(users).set({ passwordHash: await hashPassword(newPassword), failedAttempts: 0, lockedUntil: null }).where(eq(users.id, row.userId));
+  await revokeAllSessions(db, row.userId, undefined, now);
+}
+
+/** Solicita alteração de e-mail com senha atual e confirmação enviada ao novo endereço. */
+export async function requestEmailChange(db: Db, s: SessionInfo, currentPassword: string, newEmail: string, now = new Date()) {
+  const email = newEmail.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new Invalid("endereço de e-mail inválido");
+  const [u] = await db.select().from(users).where(eq(users.id, s.userId));
+  if (!u || u.deletedAt || !(await verifyPassword(u.passwordHash, currentPassword))) throw new Invalid("senha atual incorreta");
+  if (email === u.email.toLowerCase()) throw new Invalid("informe um endereço diferente do atual");
+  const [taken] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
+  if (taken) throw new Invalid("este endereço de e-mail já está associado a uma conta");
+  const token = randomToken();
+  await db.insert(emailTokens).values({ userId: u.id, kind: "change_email", targetEmail: email, tokenHash: sha256(token), expiresAt: new Date(now.getTime() + 60 * MIN) });
+  return { token, email };
+}
+
+/** Confirma o novo endereço, marca-o verificado e encerra as demais sessões. */
+export async function confirmEmailChange(db: Db, token: string, now = new Date()) {
+  const row = await consumeToken(db, token, "change_email", now);
+  if (!row.targetEmail) throw new Invalid("solicitação de alteração inválida");
+  const [taken] = await db.select({ id: users.id }).from(users).where(eq(users.email, row.targetEmail));
+  if (taken) throw new Invalid("este endereço de e-mail já está associado a uma conta");
+  try {
+    await db.update(users).set({ email: row.targetEmail, emailVerifiedAt: now }).where(eq(users.id, row.userId));
+  } catch {
+    throw new Invalid("não foi possível utilizar este endereço de e-mail");
+  }
+  await revokeAllSessions(db, row.userId, undefined, now);
 }
 
 export async function changePassword(db: Db, s: SessionInfo, current: string, next: string, now = new Date()) {
