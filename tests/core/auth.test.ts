@@ -111,6 +111,7 @@ describe("2FA", () => {
     await expect(auth.enrollTotp(db, u.id, "a@t.org")).rejects.toThrow("já ativado");
     const l = await auth.login(db, { email: "a@t.org", password: PW }, t0);
     expect(l.status).toBe("mfa_required");
+    expect((await auth.validateSession(db, l.token, t0))?.mfaRequired).toBe(true);
     const t1 = new Date(t0.getTime() + 60_000);
     const code = totpAt(secret, t1.getTime());
     await auth.verifyMfa(db, l.token, code, t1);
@@ -127,8 +128,8 @@ describe("recuperação 2FA", () => {
     const { secret } = await auth.enrollTotp(db, u.id, "a@t.org");
     await auth.confirmTotp(db, u.id, totpAt(secret, t0.getTime()), t0);
     const login = await auth.login(db, { email: "a@t.org", password: PW }, new Date(t0.getTime() + 30_000));
-    await expect(auth.requestMfaReset(db, login.token, new Date(t0.getTime() + 30_000))).resolves.toMatchObject({ email: "a@t.org" });
     const reset = await auth.requestMfaReset(db, login.token, new Date(t0.getTime() + 30_000));
+    expect(reset.email).toBe("a@t.org");
     await auth.confirmMfaReset(db, reset.token, new Date(t0.getTime() + 31_000));
     expect(await auth.hasMfa(db, u.id)).toBe(false);
     expect(await auth.validateSession(db, login.token, new Date(t0.getTime() + 32_000))).toBeNull();
