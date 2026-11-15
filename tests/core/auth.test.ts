@@ -111,12 +111,52 @@ describe("2FA", () => {
     await expect(auth.enrollTotp(db, u.id, "a@t.org")).rejects.toThrow("já ativado");
     const l = await auth.login(db, { email: "a@t.org", password: PW }, t0);
     expect(l.status).toBe("mfa_required");
+    expect((await auth.validateSession(db, l.token, t0))?.mfaRequired).toBe(true);
     const t1 = new Date(t0.getTime() + 60_000);
     const code = totpAt(secret, t1.getTime());
     await auth.verifyMfa(db, l.token, code, t1);
     expect((await auth.validateSession(db, l.token, t1))?.mfaVerified).toBe(true);
     const l2 = await auth.login(db, { email: "a@t.org", password: PW }, t1);
     await expect(auth.verifyMfa(db, l2.token, code, t1)).rejects.toThrow("código inválido");
+  });
+});
+
+describe("recuperação 2FA", () => {
+  it("exige sessão recém-autenticada e confirmação pelo e-mail para remover o autenticador", async () => {
+    const { db, u } = await setup();
+    const t0 = new Date("2026-11-08T12:00:00Z");
+    const { secret } = await auth.enrollTotp(db, u.id, "a@t.org");
+    await auth.confirmTotp(db, u.id, totpAt(secret, t0.getTime()), t0);
+    const login = await auth.login(db, { email: "a@t.org", password: PW }, new Date(t0.getTime() + 30_000));
+    const reset = await auth.requestMfaReset(db, login.token, new Date(t0.getTime() + 30_000));
+    expect(reset.email).toBe("a@t.org");
+    await auth.confirmMfaReset(db, reset.token, new Date(t0.getTime() + 31_000));
+    expect(await auth.hasMfa(db, u.id)).toBe(false);
+    expect(await auth.validateSession(db, login.token, new Date(t0.getTime() + 32_000))).toBeNull();
+  });
+});
+
+describe("alteração de e-mail", () => {
+  it("exige senha atual, confirma o novo endereço e revoga sessões", async () => {
+    const { db, u } = await setup();
+    const login = await auth.login(db, { email: "a@t.org", password: PW });
+    const session = (await auth.validateSession(db, login.token))!;
+    await expect(auth.requestEmailChange(db, session, "senha-incorreta", "novo@t.org")).rejects.toThrow("senha atual incorreta");
+    const request = await auth.requestEmailChange(db, session, PW, "Novo@T.org");
+    await auth.confirmEmailChange(db, request.token);
+    expect(await auth.validateSession(db, login.token)).toBeNull();
+    const next = await auth.login(db, { email: "novo@t.org", password: PW });
+    expect(next.status).toBe("ok");
+    await expect(auth.login(db, { email: "a@t.org", password: PW })).rejects.toThrow("credenciais inválidas");
+    void u;
+  });
+  it("não permite alterar para e-mail já utilizado", async () => {
+    const { db, u } = await setup();
+    await db.insert(users).values({ email: "b@t.org", username: "buser", passwordHash: await hashPassword(PW), emailVerifiedAt: new Date() });
+    const login = await auth.login(db, { email: "a@t.org", password: PW });
+    const session = (await auth.validateSession(db, login.token))!;
+    await expect(auth.requestEmailChange(db, session, PW, "b@t.org")).rejects.toThrow("já está associado");
+    void u;
   });
 });
 

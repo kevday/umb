@@ -1,7 +1,8 @@
 "use server";
 import { redirect } from "next/navigation";
+import { headers } from "next/headers";
 import * as auth from "@/core/auth/service";
-import { Forbidden } from "@/core/errors";
+import { Forbidden, Invalid } from "@/core/errors";
 import { deleteAccount, updateProfile } from "@/core/account";
 import { setThemeColor } from "@/theme/service";
 import { resetPublicLook, setPublicLook } from "@/theme/site";
@@ -12,6 +13,7 @@ import * as sb from "@/core/social/scrapbook";
 import { setModuleEnabled } from "@/modules";
 import { getDb } from "@/web/db";
 import { back, done, str } from "@/web/form";
+import { throttle } from "@/core/auth/throttle";
 import { appUrl, sendMail } from "@/web/mailer";
 import { clearSessionCookie, requirePage, sessionToken } from "@/web/session";
 
@@ -78,8 +80,9 @@ export async function inviteCreate(f: FormData) {
   await run("/institution", async (p, db) => {
     const email = str(f, "email");
     const r = await inst.createInvitation(db, p.ctx, { lodgeId: str(f, "lodgeId"), email, intendedDegree: Number(str(f, "degree")) || 1 });
-    await sendMail(email, "Convite para a rede", `Seu convite (válido por 14 dias, após aprovação): ${appUrl()}/register?token=${r.token}`);
-  }, "Convite criado e enviado. Ele só vale depois de aprovado por outra autoridade.");
+    try { await sendMail(email, "Convite para a rede", `Seu convite (válido por 14 dias, após aprovação): ${appUrl()}/register?token=${r.token}`); }
+    catch (e) { console.error("[mail:invitation] convite registrado, mas o envio falhou", e); }
+  }, "Convite registrado. Convites de Aprendiz criados pela Potência já estão aprovados; os demais aguardam a autoridade competente.");
 }
 export async function inviteApprove(f: FormData) { await run("/institution", (p, db) => inst.approveInvitation(db, p.ctx, str(f, "id")), "Convite aprovado."); }
 export async function degreeRequest(f: FormData) { await run("/institution", (p, db) => inst.requestDegree(db, p.ctx, str(f, "userId")), "Solicitação registrada. Falta a aprovação."); }
@@ -107,6 +110,15 @@ export async function lodgeCreate(f: FormData) {
 export async function totpStart() { await run("/settings", async (p, db) => { const u = await db.query.users.findFirst({ where: (t, { eq }) => eq(t.id, p.session.userId) }); await auth.enrollTotp(db, p.session.userId, u?.email ?? "conta"); }); }
 export async function totpConfirm(f: FormData) {
   await run("/settings", async (p, db) => { await auth.confirmTotp(db, p.session.userId, str(f, "code")); await auth.markSessionMfa(db, p.session.sessionId); }, "2FA ativado.");
+}
+export async function emailChangeRequest(f: FormData) {
+  await run("/settings", async (p, db) => {
+    const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "desconhecido";
+    await throttle(db, `email-change:${p.session.userId}:${ip}`, 5, 60 * 60_000);
+    const r = await auth.requestEmailChange(db, p.session, String(f.get("current") ?? ""), str(f, "email"));
+    try { await sendMail(r.email, "Confirme seu novo e-mail", `Confirme a alteração do endereço de e-mail (válido por 1 hora): ${appUrl()}/email/change?token=${r.token}`); }
+    catch (e) { console.error("[mail:email-change] envio falhou", e); throw new Invalid("não foi possível enviar a confirmação. Verifique o Resend e tente novamente"); }
+  }, "Enviamos um link de confirmação ao novo endereço. O e-mail atual permanece válido até a confirmação.");
 }
 export async function passwordChange(f: FormData) {
   await run("/settings", (p, db) => auth.changePassword(db, p.session, String(f.get("current") ?? ""), String(f.get("next") ?? "")), "Senha alterada. As outras sessões foram encerradas.");

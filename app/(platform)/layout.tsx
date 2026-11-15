@@ -10,9 +10,13 @@ import { logoutAction } from "./actions";
 
 export default async function PlatformLayout({ children }: { children: ReactNode }) {
   const p = await requirePage();
-  const mods = (await loadRegistry(getDb())).navFor(p.subject);
+  const db = getDb();
   const tech = !!p.subject.technicalAdmin;
-  const theme = tech ? null : await resolveTheme(getDb(), p.session.userId);
+  const [registry, theme] = await Promise.all([
+    loadRegistry(db),
+    tech ? Promise.resolve(null) : resolveTheme(db, p.session.userId),
+  ]);
+  const mods = registry.navFor(p.subject);
   const nonce = (await headers()).get("x-nonce") ?? undefined;
   const items: [string, string][] = [
     ["/", "Início"],

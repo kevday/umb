@@ -64,6 +64,27 @@
       "when": 1794652337228,
       "tag": "0008_site_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794750000000,
+      "tag": "0009_email_change",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794750060000,
+      "tag": "0010_mfa_recovery",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794750120000,
+      "tag": "0011_potencia_direct_apprentice",
+      "breakpoints": true
     }
   ]
 }

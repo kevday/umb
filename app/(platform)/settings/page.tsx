@@ -7,14 +7,15 @@ import { Flash, type SP } from "@/web/ui";
 import { hasMfa, pendingTotpSecret } from "@/core/auth/service";
 import { otpauthUri } from "@/core/auth/totp";
 import { eq } from "drizzle-orm";
-import { profiles } from "@/shared/database/schema";
+import { profiles, users } from "@/shared/database/schema";
 import { resolveTheme } from "@/theme/service";
-import { accountDelete, passwordChange, profileUpdate, themeReset, themeSet, totpConfirm, totpStart } from "../actions";
+import { accountDelete, emailChangeRequest, passwordChange, profileUpdate, themeReset, themeSet, totpConfirm, totpStart } from "../actions";
 
 export default async function Settings({ searchParams }: { searchParams: Promise<SP> }) {
   const s = await searchParams, p = await requirePage(), db = getDb(), me = p.session.userId;
   const [on, secret] = await Promise.all([hasMfa(db, me), pendingTotpSecret(db, me)]);
   const [prof] = await db.select().from(profiles).where(eq(profiles.userId, me));
+  const [account] = await db.select({ email: users.email }).from(users).where(eq(users.id, me));
   const th = prof ? await resolveTheme(db, me) : null;
   const qr = secret ? await QRCode.toString(otpauthUri(brand.name, "conta", secret), { type: "svg", margin: 1 }) : null;
   return (
@@ -65,6 +66,16 @@ export default async function Settings({ searchParams }: { searchParams: Promise
           </div>
         </>
       )}
+      <h2>Endereço de e-mail</h2>
+      <form action={emailChangeRequest} className="card stack">
+        <p>Endereço atual: <strong>{account?.email ?? "indisponível"}</strong></p>
+        <label htmlFor="newEmail">Novo endereço de e-mail</label>
+        <input id="newEmail" name="email" type="email" autoComplete="email" required />
+        <label htmlFor="emailCurrentPassword">Senha atual</label>
+        <input id="emailCurrentPassword" name="current" type="password" autoComplete="current-password" required />
+        <button>Enviar confirmação ao novo endereço</button>
+        <p className="mut">O endereço só será alterado depois que você confirmar o link enviado. O endereço atual continua funcionando até lá.</p>
+      </form>
       <h2>Verificação em duas etapas (2FA)</h2>
       <div className="card stack">
         {on && <p>2FA ativo.{p.session.mfaVerified ? " Esta sessão está verificada." : ""}</p>}

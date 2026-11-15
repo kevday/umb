@@ -56,6 +56,15 @@ describe("convites e cadastro", () => {
     await approveInvitation(db, A, inv.invitationId);
     await expect(registerWithInvitation(db, { token: inv.token, email: "e@teste.org", username: "expir", fullName: "E", password: PW }, new Date(Date.now() + 20 * 86_400_000))).rejects.toThrow(Invalid);
   });
+  it("recusa e-mail já cadastrado e convite ainda válido duplicado", async () => {
+    const { db, f, B } = await world();
+    const [existing] = await db.insert(users).values({ email: "existente@teste.org", username: "existente", passwordHash: "x" }).returning();
+    await expect(createInvitation(db, B, { lodgeId: f.lodgeId, email: "existente@teste.org", intendedDegree: 1 })).rejects.toThrow("já pertence a uma conta");
+    const first = await createInvitation(db, B, { lodgeId: f.lodgeId, email: "pendente@teste.org", intendedDegree: 1 });
+    await expect(createInvitation(db, B, { lodgeId: f.lodgeId, email: "pendente@teste.org", intendedDegree: 1 })).rejects.toThrow("já existe um convite válido");
+    void existing;
+    void first;
+  });
   it("membro comum e administrador técnico não convidam", async () => {
     const { db, f, member } = await world();
     const comum = await member({ name: "comum", degree: 2 });
@@ -76,6 +85,15 @@ describe("importação com Grau acima de Aprendiz", () => {
     const r = await registerWithInvitation(db, { token: inv.token, email: "mestre-importado@teste.org", username: "importado", fullName: "Importado", password: PW });
     expect((await loadSubject(db, r.userId))?.degree).toBe(3);
     await expect(createInvitation(db, B, { lodgeId: f.lodgeId, email: "x@t.org", intendedDegree: 0 })).rejects.toThrow(Invalid);
+  });
+  it("Administração da Potência pode admitir Aprendiz diretamente, mas não autoaprovar Grau superior", async () => {
+    const { db, f, A } = await world();
+    const inv = await createInvitation(db, A, { lodgeId: f.lodgeId, email: "direto@teste.org", intendedDegree: 1 });
+    await expect(approveInvitation(db, A, inv.invitationId)).rejects.toThrow("convite");
+    const r = await registerWithInvitation(db, { token: inv.token, email: "direto@teste.org", username: "direto", fullName: "Direto", password: PW });
+    const [assignment] = await db.select().from(degreeAssignments).where(eq(degreeAssignments.userId, r.userId));
+    expect(assignment.origin).toBe("potencia_direct");
+    await expect(createInvitation(db, A, { lodgeId: f.lodgeId, email: "grau3@teste.org", intendedDegree: 3 })).rejects.toThrow("Loja deve registrar");
   });
   it("convite de Aprendiz segue aprovado pelo Venerável", async () => {
     const { db, f, A, B, member } = await world();
