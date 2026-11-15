@@ -2,6 +2,7 @@ import { and, eq, gt, isNull, lt, ne, or } from "drizzle-orm";
 import type { Db } from "@/shared/database/client";
 import { emailTokens, sessions, userTotp, users } from "@/shared/database/schema";
 import { brand } from "@/config/brand";
+import { appendAudit } from "@/access-control/audit/store";
 import { Invalid } from "../errors";
 import { decrypt, encrypt, randomToken, sha256 } from "./crypto";
 import { assertPasswordPolicy, dummyHash, hashPassword, verifyPassword } from "./password";
@@ -160,10 +161,12 @@ export async function requestMfaReset(db: Db, sessionToken: string, now = new Da
 /** Remove o TOTP somente após uso único do link enviado ao e-mail já verificado; encerra todas as sessões. */
 export async function confirmMfaReset(db: Db, token: string, now = new Date()) {
   const row = await consumeToken(db, token, "mfa_reset", now);
-  await db.transaction(async (tx) => {
+  await db.transaction(async (t) => {
+    const tx = t as unknown as Db;
     await tx.delete(userTotp).where(eq(userTotp.userId, row.userId));
     await tx.update(sessions).set({ revokedAt: now })
       .where(and(eq(sessions.userId, row.userId), isNull(sessions.revokedAt)));
+    await appendAudit(tx, { actorId: row.userId, action: "account.mfa_reset", subjectId: row.userId, payload: { method: "verified_email_link" } }, now);
   });
 }
 
@@ -189,13 +192,17 @@ export async function confirmEmailChange(db: Db, token: string, now = new Date()
   const [taken] = await db.select({ id: users.id }).from(users).where(eq(users.email, row.targetEmail));
   if (taken) throw new Invalid("este endereço de e-mail já está associado a uma conta");
   try {
-    await db.update(users).set({ email: row.targetEmail, emailVerifiedAt: now }).where(eq(users.id, row.userId));
+    await db.transaction(async (t) => {
+      const tx = t as unknown as Db;
+      await tx.update(users).set({ email: row.targetEmail!, emailVerifiedAt: now }).where(eq(users.id, row.userId));
+      // Tokens enviados ao endereço antigo (ex.: redefinição de senha) deixam de ser válidos.
+      await tx.update(emailTokens).set({ usedAt: now }).where(and(eq(emailTokens.userId, row.userId), isNull(emailTokens.usedAt)));
+      await tx.update(sessions).set({ revokedAt: now }).where(and(eq(sessions.userId, row.userId), isNull(sessions.revokedAt)));
+      await appendAudit(tx, { actorId: row.userId, action: "account.email_changed", subjectId: row.userId, payload: { emailChanged: true } }, now);
+    });
   } catch {
     throw new Invalid("não foi possível utilizar este endereço de e-mail");
   }
-  // Tokens enviados ao endereço antigo (ex.: redefinição de senha) deixam de ser válidos.
-  await db.update(emailTokens).set({ usedAt: now }).where(and(eq(emailTokens.userId, row.userId), isNull(emailTokens.usedAt)));
-  await revokeAllSessions(db, row.userId, undefined, now);
 }
 
 export async function changePassword(db: Db, s: SessionInfo, current: string, next: string, now = new Date()) {
