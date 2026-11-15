@@ -1,5 +1,5 @@
 import { Flash, type SP } from "@/web/ui";
-import { resendVerificationAction } from "../actions";
+import { resendVerificationAction } from "../../actions";
 
 export default async function ResendVerification({ searchParams }: { searchParams: Promise<SP> }) {
   const s = await searchParams;
