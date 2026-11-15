@@ -112,7 +112,7 @@ export async function setLodgeRite(db: Db, ctx: Ctx, lodgeId: string, rite: stri
 }
 
 export async function createInvitation(db: Db, ctx: Ctx, i: { lodgeId: string; email: string; intendedDegree: number }, now = new Date()) {
-  const { lodge } = await lodgeAuthority(db, ctx, i.lodgeId, [SEC, VM], now);
+  const { actor, lodge } = await lodgeAuthority(db, ctx, i.lodgeId, [SEC, VM], now);
   if (!Number.isInteger(i.intendedDegree) || i.intendedDegree < 1 || i.intendedDegree > 33) throw new Invalid("Grau inválido");
   const email = i.email.trim().toLowerCase();
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254) throw new Invalid("endereço de e-mail inválido");
