@@ -5,16 +5,22 @@ import { getDb } from "@/web/db";
 import { brand } from "@/config/brand";
 import { Flash, type SP } from "@/web/ui";
 import { hasMfa, pendingTotpSecret } from "@/core/auth/service";
+import { remainingRecoveryCodes } from "@/core/auth/recovery";
+import { readSecretFlash } from "@/web/flash";
+import { users } from "@/shared/database/schema";
 import { otpauthUri } from "@/core/auth/totp";
 import { eq } from "drizzle-orm";
 import { profiles } from "@/shared/database/schema";
 import { resolveTheme } from "@/theme/service";
-import { accountDelete, passwordChange, profileUpdate, themeReset, themeSet, totpConfirm, totpStart } from "../actions";
+import { accountDelete, emailChangeRequest, flashClear, passwordChange, recoveryGenerate, totpReplace, profileUpdate, themeReset, themeSet, totpConfirm, totpStart } from "../actions";
 
 export default async function Settings({ searchParams }: { searchParams: Promise<SP> }) {
   const s = await searchParams, p = await requirePage(), db = getDb(), me = p.session.userId;
   const [on, secret] = await Promise.all([hasMfa(db, me), pendingTotpSecret(db, me)]);
   const [prof] = await db.select().from(profiles).where(eq(profiles.userId, me));
+  const [me_] = await db.select({ email: users.email }).from(users).where(eq(users.id, me));
+  const remaining = on ? await remainingRecoveryCodes(db, me) : 0;
+  const emailLink = await readSecretFlash("emaillink");
   const th = prof ? await resolveTheme(db, me) : null;
   const qr = secret ? await QRCode.toString(otpauthUri(brand.name, "conta", secret), { type: "svg", margin: 1 }) : null;
   return (
@@ -67,7 +73,24 @@ export default async function Settings({ searchParams }: { searchParams: Promise
       )}
       <h2>Verificação em duas etapas (2FA)</h2>
       <div className="card stack">
-        {on && <p>2FA ativo.{p.session.mfaVerified ? " Esta sessão está verificada." : ""}</p>}
+        {on && (
+          <>
+            <p>2FA ativo.{p.session.mfaVerified ? " Esta sessão está verificada." : ""} Códigos de recuperação restantes: <strong>{remaining}</strong>.</p>
+            {remaining === 0 && <p className="msg err">Você não tem códigos de recuperação. Gere novos abaixo: sem eles, se perder o aparelho, só a secretaria da sua Loja consegue redefinir o seu 2FA.</p>}
+            <form action={recoveryGenerate} className="inline">
+              <label htmlFor="rc-pw">Gerar novos códigos de recuperação (os atuais deixam de valer)</label>
+              <input id="rc-pw" name="password" type="password" placeholder="Sua senha" autoComplete="current-password" required />
+              <button className="sec">Gerar</button>
+            </form>
+            <form action={totpReplace} className="stack">
+              <h3>Trocar de aplicativo autenticador</h3>
+              <p className="mut">Perdeu ou trocou de celular? Confirme com a senha e com um código do aparelho antigo (ou um código de recuperação). O aparelho antigo é removido e você cadastra o novo.</p>
+              <label htmlFor="tr-pw">Senha</label><input id="tr-pw" name="password" type="password" autoComplete="current-password" required />
+              <label htmlFor="tr-code">Código atual (6 dígitos) ou de recuperação</label><input id="tr-code" name="code" type="text" maxLength={11} autoComplete="one-time-code" required />
+              <button className="sec">Remover aparelho e cadastrar outro</button>
+            </form>
+          </>
+        )}
         {!on && !secret && (
           <>
             <p>Obrigatório para quem exerce cargo. Use um aplicativo autenticador (TOTP).</p>
@@ -87,6 +110,15 @@ export default async function Settings({ searchParams }: { searchParams: Promise
           </>
         )}
       </div>
+      <h2>E-mail de acesso</h2>
+      <form action={emailChangeRequest} className="card stack">
+        <p>E-mail atual: <strong>{me_?.email}</strong></p>
+        <p className="mut">Para trocar, informe o novo endereço e a sua senha. Enviamos um link ao NOVO e-mail; a troca só vale depois de você abri-lo. Sem acesso ao e-mail antigo e sem poder entrar? Peça à secretaria da sua Loja.</p>
+        <label htmlFor="ne">Novo e-mail</label><input id="ne" name="newEmail" type="email" required />
+        <label htmlFor="ne-pw">Senha</label><input id="ne-pw" name="password" type="password" autoComplete="current-password" required />
+        <button>Enviar link de confirmação</button>
+        {emailLink && <p className="msg good">Modo sem e-mail configurado. Link de confirmação: <code>{emailLink}</code></p>}
+      </form>
       <h2>Alterar senha</h2>
       <form action={passwordChange} className="card stack">
         <label htmlFor="current">Senha atual</label><input id="current" name="current" type="password" autoComplete="current-password" required />

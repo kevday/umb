@@ -41,12 +41,14 @@ export const userTotp = pgTable("user_totp", {
   lastStep: integer("last_step"),
 });
 
-export const emailTokenKind = pgEnum("email_token_kind", ["verify", "reset"]);
+export const emailTokenKind = pgEnum("email_token_kind", ["verify", "reset", "email_change"]);
 export const emailTokens = pgTable("email_tokens", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id),
   kind: emailTokenKind("kind").notNull(),
   tokenHash: text("token_hash").notNull().unique(),
+  /** só para kind = email_change: o novo endereço a confirmar */
+  newEmail: text("new_email"),
   expiresAt: ts("expires_at").notNull(),
   usedAt: ts("used_at"),
 });
@@ -139,3 +141,16 @@ export const siteSettings = pgTable("site_settings", {
   updatedAt: ts("updated_at").defaultNow().notNull(),
   updatedBy: uuid("updated_by").references(() => users.id),
 });
+
+/** Códigos de recuperação do 2FA (uso único). Só o hash é guardado. */
+export const recoveryCodes = pgTable(
+  "recovery_codes",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    userId: uuid("user_id").notNull().references(() => users.id),
+    codeHash: text("code_hash").notNull(),
+    usedAt: ts("used_at"),
+    createdAt: ts("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("recovery_codes_user_idx").on(t.userId)],
+);

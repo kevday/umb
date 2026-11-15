@@ -64,6 +64,13 @@
       "when": 1794652337228,
       "tag": "0008_site_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1794713927614,
+      "tag": "0009_account_recovery",
+      "breakpoints": true
     }
   ]
 }

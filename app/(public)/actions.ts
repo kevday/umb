@@ -6,7 +6,7 @@ import { throttle } from "@/core/auth/throttle";
 import { registerWithInvitation } from "@/access-control/services/institution";
 import { getDb } from "@/web/db";
 import { back, done, str } from "@/web/form";
-import { appUrl, sendMail } from "@/web/mailer";
+import { appUrl, sendMailSafe } from "@/web/mailer";
 import { sessionToken, setSessionCookie } from "@/web/session";
 
 const ipOf = async () => (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() || "desconhecido";
@@ -34,8 +34,8 @@ export async function registerAction(f: FormData) {
   if (String(f.get("password")) !== String(f.get("password2"))) back(path, new (await import("@/core/errors")).Invalid("as senhas não conferem"));
   const email = str(f, "email");
   const r = await registerWithInvitation(getDb(), { token, email, username: str(f, "username").toLowerCase(), fullName: str(f, "fullName"), password: String(f.get("password") ?? "") }).catch((e) => back(path, e));
-  await sendMail(email, "Confirme seu e-mail", `Confirme seu cadastro: ${appUrl()}/verify?token=${r.verifyToken}`);
-  done("/login", "Cadastro criado. Confirme o e-mail pelo link enviado.");
+  const mail = await sendMailSafe(email, "Confirme seu e-mail", `Confirme seu cadastro: ${appUrl()}/verify?token=${r.verifyToken}`);
+  done("/login", mail.ok || mail.skipped ? "Cadastro criado. Confirme o e-mail pelo link enviado." : "Cadastro criado, mas não foi possível enviar o e-mail de confirmação. Procure a secretaria da sua Loja.");
 }
 
 export async function verifyAction(f: FormData) {
@@ -47,7 +47,7 @@ export async function forgotAction(f: FormData) {
   await throttle(getDb(), `forgot:${await ipOf()}`, 5, 10 * 60_000).catch((e) => back("/forgot", e));
   const email = str(f, "email");
   const t = await auth.requestPasswordReset(getDb(), email);
-  if (t) await sendMail(email, "Redefinição de senha", `Redefina sua senha (válido por 1 hora): ${appUrl()}/reset?token=${t}`);
+  if (t) await sendMailSafe(email, "Redefinição de senha", `Redefina sua senha (válido por 1 hora): ${appUrl()}/reset?token=${t}`);
   done("/login", "Se o e-mail estiver cadastrado, enviamos as instruções.");
 }
 
@@ -55,4 +55,10 @@ export async function resetAction(f: FormData) {
   const token = str(f, "token");
   await auth.resetPassword(getDb(), token, String(f.get("password") ?? "")).catch((e) => back(`/reset?token=${encodeURIComponent(token)}`, e));
   done("/login", "Senha alterada. Entre com a nova senha.");
+}
+
+export async function emailConfirmAction(f: FormData) {
+  const r = await auth.confirmEmailChange(getDb(), str(f, "token")).catch((e) => back("/login", e));
+  await sendMailSafe(r.oldEmail, "Seu e-mail de acesso foi alterado", "O e-mail de acesso da sua conta foi alterado. Se não foi você, procure a secretaria da sua Loja imediatamente.");
+  done("/login", "E-mail alterado. Entre com o novo endereço.");
 }

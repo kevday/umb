@@ -43,11 +43,13 @@ class Browser {
 }
 const has = (r: { html: string }, t: string) => r.html.includes(t);
 
-async function enroll(b: Browser) {
+/** Ativa o 2FA e devolve os 10 códigos de recuperação exibidos uma única vez. */
+async function enroll(b: Browser): Promise<string[]> {
   await b.submit("/settings", "Ativar 2FA");
   const secret = /<code>([A-Z2-7]+)<\/code>/.exec((await b.get("/settings")).html)?.[1];
   if (!secret) throw new Error("segredo do 2FA não exibido");
-  return b.submit("/settings", "Confirmar e ativar", { code: totpAt(secret, Date.now()) });
+  const r = await b.submit("/settings", "Confirmar e ativar", { code: totpAt(secret, Date.now()) });
+  return [...r.html.matchAll(/<code>([a-z0-9]{5}-[a-z0-9]{5})<\/code>/g)].map((m) => m[1]);
 }
 
 (async () => {
@@ -70,7 +72,8 @@ async function enroll(b: Browser) {
   await vm.login("vm@teste.org", PW("VM_PASSWORD", "senha-de-teste-forte-2"));
   ok(has(await vm.get("/"), "ainda não confirmou o 2FA"), "autoridade sem 2FA vê o aviso");
   ok(has(await vm.get("/institution"), "Confirme o 2FA"), "área institucional bloqueada sem 2FA");
-  ok(has(await enroll(pot), "2FA ativado") && has(await enroll(vm), "2FA ativado"), "2FA ativado para Potência e Venerável");
+  const potCodes = await enroll(pot), vmCodes = await enroll(vm);
+  ok(potCodes.length === 10 && vmCodes.length === 10, "2FA ativado para Potência e Venerável, com 10 códigos de recuperação cada");
 
   console.log("Convite com aprovação dupla e cadastro");
   const inv = await vm.submit("/institution", "Criar convite", { email: "novo@teste.org", degree: "1" });
@@ -123,7 +126,7 @@ async function enroll(b: Browser) {
   await tec.login("tec@teste.org", PW("TECH_PASSWORD", "senha-de-teste-forte-3"));
   ok((await tec.get("/communities")).status === 404 && (await tec.get("/institution")).status === 404, "conta técnica não enxerga conteúdo nem administração");
   ok(has(await tec.submit("/admin", "Ativar", { }), "Confirme o 2FA"), "alterar módulos exige 2FA");
-  ok(has(await enroll(tec), "2FA ativado"), "2FA da conta técnica");
+  ok((await enroll(tec)).length === 10, "2FA da conta técnica com códigos de recuperação");
   ok(has(await tec.submit("/admin", "Ativar"), "Módulo atualizado"), "administração técnica ativa módulo");
   console.log("Interface das páginas de entrada (só administrador técnico)");
   ok((await nov.get("/settings/interface")).status === 404 && (await vm.get("/settings/interface")).status === 404 && (await pot.get("/settings/interface")).status === 404, "membro, Venerável e Potência não enxergam a página Interface (404)");
@@ -133,6 +136,36 @@ async function enroll(b: Browser) {
   ok(has(lk, "atualizada"), "administrador técnico salva a aparência");
   const lg = await anon.get("/login");
   ok(has(lg, "Entre, irmão") && has(lg, 'class="noble"') && /--decor:#c9a24b/i.test(lg.html), "página de login usa a paleta nobre escolhida (bordô e dourado)");
+  console.log("Convites: e-mail repetido e aprovação direta da Potência");
+  ok(has(await vm.submit("/institution", "Criar convite", { email: "novo@teste.org", degree: "1" }), "já existe uma conta com este e-mail"), "convite para e-mail que já tem conta é recusado na hora, com o motivo");
+  ok(has(await vm.submit("/institution", "Criar convite", { email: "pend@teste.org", degree: "1" }), "Convite criado"), "convite novo é criado");
+  ok(has(await vm.submit("/institution", "Criar convite", { email: "pend@teste.org", degree: "1" }), "convite pendente"), "segundo convite para o mesmo e-mail é recusado");
+  ok(has(await vm.submit("/institution", "Cancelar"), "Convite cancelado"), "convite pendente pode ser cancelado");
+  ok(has(await vm.submit("/institution", "Criar convite", { email: "tentativa@teste.org", degree: "3", approveNow: "on" }), "somente a Administração da Potência"), "o Venerável não consegue aprovar o próprio convite");
+  const dir = await pot.submit("/institution", "Criar convite", { email: "direto@teste.org", degree: "3", approveNow: "on" });
+  ok(has(dir, "Já está aprovado"), "a Potência cria convite já aprovado, em Grau de Mestre");
+  const dreg = await new Browser().submit(`/register?token=${mailToken("register")}`, "Criar conta", { email: "direto@teste.org", fullName: "Mestre Direto", username: "direto", password: "senha-bem-forte-456", password2: "senha-bem-forte-456" });
+  ok(has(dreg, "Cadastro criado"), "o convidado se cadastra sem nova aprovação");
+  const dnav = new Browser(); await dnav.submit(`/verify?token=${mailToken("verify")}`, "Confirmar meu e-mail");
+  ok(has(await dnav.login("direto@teste.org", "senha-bem-forte-456"), "Mestre"), "entra já como Mestre");
+
+  console.log("2FA: códigos de recuperação");
+  const pot2 = new Browser(); const lg2 = await pot2.login("pot@teste.org", PW("POT_PASSWORD", "senha-de-teste-forte-1"));
+  ok(lg2.url.startsWith("/login/mfa"), "com 2FA ativo, o login pede o segundo fator");
+  const rec = await pot2.submit("/login/mfa", "Confirmar", { code: potCodes[0] });
+  ok(!rec.url.startsWith("/login") && !has(await pot2.get("/institution"), "Confirme o 2FA"), "um código de recuperação substitui o do aplicativo (autoridade volta a operar)");
+  const pot3 = new Browser(); await pot3.login("pot@teste.org", PW("POT_PASSWORD", "senha-de-teste-forte-1"));
+  ok((await pot3.submit("/login/mfa", "Confirmar", { code: potCodes[0] })).url.startsWith("/login/mfa"), "o mesmo código não funciona duas vezes");
+  const nova = await pot.submit("/settings", "Gerar", { password: PW("POT_PASSWORD", "senha-de-teste-forte-1") });
+  ok([...nova.html.matchAll(/<code>[a-z0-9]{5}-[a-z0-9]{5}<\/code>/g)].length === 10, "novos códigos são gerados mediante a senha");
+
+  console.log("Troca de e-mail pelo próprio usuário");
+  const chg = await nov.submit("/settings", "Enviar link de confirmação", { newEmail: "novo.endereco@teste.org", password: "senha-bem-forte-123" });
+  ok(has(chg, "Enviamos um link"), "pede a troca (senha + link para o novo endereço)");
+  const conf = await new Browser().submit(`/confirm-email?token=${mailToken("confirm-email")}`, "Confirmar troca de e-mail");
+  ok(has(conf, "E-mail alterado"), "o link no novo endereço efetiva a troca");
+  ok(has(await new Browser().login("novo@teste.org", "senha-bem-forte-123"), "credenciais inválidas"), "o e-mail antigo deixa de entrar");
+  ok(has(await nov.login("novo.endereco@teste.org", "senha-bem-forte-123"), "Início"), "o novo e-mail entra normalmente");
   ok(has(await nov.get("/"), "Início"), "sessão segue válida");
   console.log(`\n${n - fails}/${n} verificações passaram`);
   process.exit(fails ? 1 : 0);

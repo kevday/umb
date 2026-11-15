@@ -14,7 +14,8 @@
     "start": "next start",
     "e2e": "tsx e2e/smoke.ts",
     "setup": "tsx scripts/setup.ts",
-    "doctor": "tsx scripts/doctor.ts"
+    "doctor": "tsx scripts/doctor.ts",
+    "reset-2fa": "tsx scripts/reset-2fa.ts"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.15",

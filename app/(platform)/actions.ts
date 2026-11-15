@@ -12,16 +12,17 @@ import * as sb from "@/core/social/scrapbook";
 import { setModuleEnabled } from "@/modules";
 import { getDb } from "@/web/db";
 import { back, done, str } from "@/web/form";
-import { appUrl, sendMail } from "@/web/mailer";
+import { appUrl, sendMailSafe } from "@/web/mailer";
+import { clearSecretFlash, setSecretFlash } from "@/web/flash";
 import { clearSessionCookie, requirePage, sessionToken } from "@/web/session";
 
 type P = Awaited<ReturnType<typeof requirePage>>;
 /** Autentica, executa, volta à página com mensagem (ou vai para `next`). */
-async function run<T>(path: string, fn: (p: P, db: ReturnType<typeof getDb>) => Promise<T>, ok?: string, next?: (r: T) => string): Promise<never> {
+async function run<T>(path: string, fn: (p: P, db: ReturnType<typeof getDb>) => Promise<T>, ok?: string | ((r: T) => string | undefined), next?: (r: T) => string): Promise<never> {
   const p = await requirePage();
   let r: T;
   try { r = await fn(p, getDb()); } catch (e) { back(path, e); }
-  return done(next ? next(r) : path, ok);
+  return done(next ? next(r) : path, typeof ok === "function" ? ok(r) : ok);
 }
 const date = (f: FormData, k: string) => (str(f, k) ? new Date(str(f, k)) : undefined);
 
@@ -77,9 +78,25 @@ export async function reportCreate(f: FormData) {
 export async function inviteCreate(f: FormData) {
   await run("/institution", async (p, db) => {
     const email = str(f, "email");
-    const r = await inst.createInvitation(db, p.ctx, { lodgeId: str(f, "lodgeId"), email, intendedDegree: Number(str(f, "degree")) || 1 });
-    await sendMail(email, "Convite para a rede", `Seu convite (válido por 14 dias, após aprovação): ${appUrl()}/register?token=${r.token}`);
-  }, "Convite criado e enviado. Ele só vale depois de aprovado por outra autoridade.");
+    const r = await inst.createInvitation(db, p.ctx, { lodgeId: str(f, "lodgeId"), email, intendedDegree: Number(str(f, "degree")) || 1, approveNow: f.get("approveNow") === "on" });
+    const link = `${appUrl()}/register?token=${r.token}`;
+    const mail = await sendMailSafe(email, "Convite para a rede", `Seu convite (válido por 14 dias${r.approved ? "" : ", após aprovação"}): ${link}`);
+    if (!mail.ok) await setSecretFlash("invite", `${email}|${link}`);
+    return { r, mail };
+  }, ({ r, mail }) => `${mail.ok ? "Convite criado e enviado por e-mail." : mail.skipped ? "Convite criado. O envio de e-mail não está configurado: entregue o link abaixo ao convidado." : "Convite criado, mas o e-mail não pôde ser enviado: entregue o link abaixo ao convidado."} ${r.approved ? "Já está aprovado." : "Falta a aprovação de outra autoridade."}`);
+}
+export async function inviteRevoke(f: FormData) { await run("/institution", (p, db) => inst.revokeInvitation(db, p.ctx, str(f, "id")), "Convite cancelado."); }
+export async function flashClear(f: FormData) { await clearSecretFlash(str(f, "name")); done(str(f, "path") || "/"); }
+export async function memberTotpReset(f: FormData) { await run("/institution", (p, db) => inst.resetMemberTotp(db, p.ctx, str(f, "userId"), str(f, "justification")), "2FA redefinido. O membro cadastra um novo aplicativo no próximo acesso."); }
+export async function memberEmailChange(f: FormData) {
+  await run("/institution", async (p, db) => {
+    const email = str(f, "newEmail");
+    const { verifyToken } = await inst.changeMemberEmail(db, p.ctx, str(f, "userId"), email, str(f, "justification"));
+    const link = `${appUrl()}/verify?token=${verifyToken}`;
+    const mail = await sendMailSafe(email, "Confirme seu novo e-mail", `Um administrador da sua Loja atualizou o seu e-mail de acesso. Confirme: ${link}. Depois use “Esqueci a senha” para definir uma nova senha.`);
+    if (!mail.ok) await setSecretFlash("invite", `${email}|${link}`);
+    return mail;
+  }, (mail) => mail.ok ? "E-mail trocado. O membro recebeu o link de confirmação." : "E-mail trocado, mas o aviso não pôde ser enviado: entregue o link abaixo ao membro.");
 }
 export async function inviteApprove(f: FormData) { await run("/institution", (p, db) => inst.approveInvitation(db, p.ctx, str(f, "id")), "Convite aprovado."); }
 export async function degreeRequest(f: FormData) { await run("/institution", (p, db) => inst.requestDegree(db, p.ctx, str(f, "userId")), "Solicitação registrada. Falta a aprovação."); }
@@ -106,7 +123,30 @@ export async function lodgeCreate(f: FormData) {
 // Configurações de segurança
 export async function totpStart() { await run("/settings", async (p, db) => { const u = await db.query.users.findFirst({ where: (t, { eq }) => eq(t.id, p.session.userId) }); await auth.enrollTotp(db, p.session.userId, u?.email ?? "conta"); }); }
 export async function totpConfirm(f: FormData) {
-  await run("/settings", async (p, db) => { await auth.confirmTotp(db, p.session.userId, str(f, "code")); await auth.markSessionMfa(db, p.session.sessionId); }, "2FA ativado.");
+  await run("/settings", async (p, db) => {
+    const codes = await auth.confirmTotp(db, p.session.userId, str(f, "code"));
+    await auth.markSessionMfa(db, p.session.sessionId);
+    await setSecretFlash("recovery", JSON.stringify(codes));
+  }, undefined, () => "/settings/recovery");
+}
+export async function recoveryGenerate(f: FormData) {
+  await run("/settings", async (p, db) => { await setSecretFlash("recovery", JSON.stringify(await auth.regenerateRecoveryCodes(db, p.session.userId, String(f.get("password") ?? "")))); }, undefined, () => "/settings/recovery");
+}
+export async function totpReplace(f: FormData) {
+  await run("/settings", async (p, db) => {
+    await auth.replaceTotp(db, p.session, String(f.get("password") ?? ""), str(f, "code"));
+    const u = await db.query.users.findFirst({ where: (t, { eq }) => eq(t.id, p.session.userId) });
+    await auth.enrollTotp(db, p.session.userId, u?.email ?? "conta");
+  }, "Aparelho antigo removido. Cadastre o novo aplicativo escaneando o QR code abaixo.");
+}
+export async function emailChangeRequest(f: FormData) {
+  await run("/settings", async (p, db) => {
+    const r = await auth.requestEmailChange(db, p.session, String(f.get("password") ?? ""), str(f, "newEmail"));
+    const link = `${appUrl()}/confirm-email?token=${r.token}`;
+    const mail = await sendMailSafe(r.newEmail, "Confirme o novo e-mail", `Você pediu para trocar o e-mail de acesso. Confirme (válido por 1 hora): ${link}`);
+    if (mail.skipped) await setSecretFlash("emaillink", link); // só sem e-mail configurado (desenvolvimento)
+    return mail;
+  }, (mail) => mail.ok || mail.skipped ? "Enviamos um link de confirmação para o novo e-mail. A troca só vale depois de você abri-lo." : "Não foi possível enviar o e-mail agora. Tente de novo mais tarde.");
 }
 export async function passwordChange(f: FormData) {
   await run("/settings", (p, db) => auth.changePassword(db, p.session, String(f.get("current") ?? ""), String(f.get("next") ?? "")), "Senha alterada. As outras sessões foram encerradas.");

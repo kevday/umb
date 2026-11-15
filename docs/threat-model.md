@@ -13,6 +13,10 @@
 | CSRF / clickjacking / XSS | Server Actions com checagem de Origin; `X-Frame-Options`; CSP com nonce; React escapa saída | e2e |
 | Força bruta e credential stuffing | Bloqueio por conta e limite por IP (estado no banco) | `auth.test`, `account.test` |
 | Reuso de código 2FA | Passo de 30 s já usado é recusado | `auth.test` |
+| Força bruta no código 2FA | 10 tentativas a cada 10 min por conta | `account-recovery.test` |
+| Perda do autenticador | 10 códigos de uso único; redefinição por autoridade (auditada); comando de emergência | `account-recovery.test`, e2e |
+| Troca de e-mail para sequestrar conta | Senha + link no NOVO endereço; sessões encerradas; antigo avisado | `account-recovery.test`, e2e |
+| Convite direto da Potência abusado | 2FA obrigatório, auditoria `direct`, origem `potencia` (risco aceito, ver ADR 22) | `account-recovery.test` |
 | Captura de tela e repasse por membros | Não mitigável tecnicamente; coberto por termos de conduta e orientação | (processo) |
 
 Fora do escopo técnico: validação da condição maçônica na origem (feita pela Potência/Loja), e segurança do dispositivo do usuário.

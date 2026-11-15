@@ -2,12 +2,13 @@ import { and, eq, gt, isNull, or } from "drizzle-orm";
 import type { Subject } from "@/contracts/access-control";
 import type { Db } from "@/shared/database/client";
 import {
-  degreeAssignments, degreeRequests, institutionalMemberships, invitations, jurisdictions, lodges,
-  officeAssignments, profiles, sessions, users,
+  degreeAssignments, degreeRequests, emailTokens, institutionalMemberships, invitations, jurisdictions, lodges,
+  officeAssignments, profiles, sessions, userTotp, users,
 } from "@/shared/database/schema";
 import { Forbidden, Invalid, NotFound } from "@/core/errors";
 import { assertPasswordPolicy, hashPassword } from "@/core/auth/password";
 import { issueEmailToken } from "@/core/auth/service";
+import { clearRecoveryCodes } from "@/core/auth/recovery";
 import { randomToken, sha256 } from "@/core/auth/crypto";
 import { can, officeActive } from "../engine/can";
 import { canApprove, canApproveInLodge, POTENCIA, VM } from "../degrees/approval";
@@ -16,6 +17,8 @@ import { appendAudit, readAudit } from "../audit/store";
 import { findRite } from "@/theme/rites";
 
 export const SEC = "Secretário";
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const mask = (e: string) => e.replace(/^(.).*(@.*)$/, "$1***$2");
 const DAY = 86_400_000;
 
 /** Contexto do ator: quem é (sessão validada) e se a sessão passou pelo 2FA. */
@@ -111,20 +114,46 @@ export async function setLodgeRite(db: Db, ctx: Ctx, lodgeId: string, rite: stri
   });
 }
 
-export async function createInvitation(db: Db, ctx: Ctx, i: { lodgeId: string; email: string; intendedDegree: number }, now = new Date()) {
-  const { lodge } = await lodgeAuthority(db, ctx, i.lodgeId, [SEC, VM], now);
+/**
+ * Cria o convite. Quem tem competência na Loja convida; outra autoridade aprova.
+ * Exceção deliberada: a Administração da Potência pode criar o convite já aprovado (`approveNow`), em qualquer Grau.
+ * É auditado como convite direto e o Grau fica com origem "potencia".
+ */
+export async function createInvitation(db: Db, ctx: Ctx, i: { lodgeId: string; email: string; intendedDegree: number; approveNow?: boolean }, now = new Date()) {
+  const { actor, lodge } = await lodgeAuthority(db, ctx, i.lodgeId, [SEC, VM], now);
   if (!Number.isInteger(i.intendedDegree) || i.intendedDegree < 1 || i.intendedDegree > 33) throw new Invalid("Grau inválido");
+  const email = i.email.trim().toLowerCase();
+  if (!EMAIL_RE.test(email) || email.length > 200) throw new Invalid("e-mail inválido");
+  const direct = !!i.approveNow;
+  if (direct && !holds(actor, [POTENCIA], { jurisdictionId: lodge.jurisdictionId }, now))
+    throw new Forbidden("somente a Administração da Potência pode criar um convite já aprovado");
+  const [exists] = await db.select({ id: users.id }).from(users).where(and(eq(users.email, email), isNull(users.deletedAt)));
+  if (exists) throw new Invalid("já existe uma conta com este e-mail na plataforma; não é preciso convidar de novo");
+  const [pending] = await db.select({ id: invitations.id }).from(invitations).where(and(eq(invitations.email, email), isNull(invitations.usedAt), gt(invitations.expiresAt, now)));
+  if (pending) throw new Invalid("já existe um convite pendente para este e-mail; cancele-o antes de criar outro");
   const token = randomToken();
   const [inv] = await db.transaction(async (t) => {
     const tx = t as unknown as Db;
     const r = await tx.insert(invitations).values({
-      lodgeId: i.lodgeId, email: i.email.trim().toLowerCase(), intendedDegree: i.intendedDegree,
+      lodgeId: i.lodgeId, email, intendedDegree: i.intendedDegree, approvedBy: direct ? ctx.userId : null,
       tokenHash: sha256(token), createdBy: ctx.userId, expiresAt: new Date(now.getTime() + 14 * DAY),
     }).returning();
-    await appendAudit(tx, { actorId: ctx.userId, action: "invitation.created", payload: { ...scopeOf(lodge), invitationId: r[0].id, degree: i.intendedDegree } }, now);
+    await appendAudit(tx, { actorId: ctx.userId, action: "invitation.created", payload: { ...scopeOf(lodge), invitationId: r[0].id, degree: i.intendedDegree, direct } }, now);
     return r;
   });
-  return { invitationId: inv.id, token };
+  return { invitationId: inv.id, token, approved: direct };
+}
+
+/** Cancela um convite pendente (o link deixa de valer). */
+export async function revokeInvitation(db: Db, ctx: Ctx, invitationId: string, now = new Date()) {
+  const [inv] = await db.select().from(invitations).where(eq(invitations.id, invitationId));
+  if (!inv || inv.usedAt || inv.expiresAt <= now) throw new NotFound("convite");
+  const { lodge } = await lodgeAuthority(db, ctx, inv.lodgeId, [SEC, VM], now);
+  await db.transaction(async (t) => {
+    const tx = t as unknown as Db;
+    await tx.update(invitations).set({ expiresAt: now }).where(eq(invitations.id, inv.id));
+    await appendAudit(tx, { actorId: ctx.userId, action: "invitation.revoked", payload: { ...scopeOf(lodge), invitationId: inv.id } }, now);
+  });
 }
 
 export async function approveInvitation(db: Db, ctx: Ctx, invitationId: string, now = new Date()) {
@@ -154,6 +183,10 @@ export async function registerWithInvitation(
   if (!inv || inv.usedAt || !inv.approvedBy || inv.expiresAt <= now || inv.email !== i.email.trim().toLowerCase())
     throw new Invalid("convite inválido, não aprovado ou expirado");
   const lodge = await lodgeOf(db, inv.lodgeId);
+  const [byEmail] = await db.select({ id: users.id }).from(users).where(eq(users.email, inv.email));
+  if (byEmail) throw new Invalid("Já existe uma conta com este e-mail. Use “Esqueci a senha” na tela de entrada ou procure a secretaria da sua Loja.");
+  const [byUser] = await db.select({ id: users.id }).from(users).where(eq(users.username, i.username));
+  if (byUser) throw new Invalid("Este nome de usuário já está em uso. Escolha outro.");
   const passwordHash = await hashPassword(i.password);
   let userId: string;
   try {
@@ -166,7 +199,7 @@ export async function registerWithInvitation(
       await tx.update(invitations).set({ usedBy: u.id }).where(eq(invitations.id, inv.id));
       await tx.insert(profiles).values({ userId: u.id, fullName: i.fullName });
       await tx.insert(institutionalMemberships).values({ userId: u.id, lodgeId: inv.lodgeId, startsAt: now });
-      await tx.insert(degreeAssignments).values({ userId: u.id, degree: inv.intendedDegree, requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
+      await tx.insert(degreeAssignments).values({ userId: u.id, degree: inv.intendedDegree, origin: inv.createdBy === inv.approvedBy ? "potencia" : "regular", requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
       await appendAudit(tx, { actorId: u.id, action: "member.registered", subjectId: u.id, payload: { ...scopeOf(lodge), invitationId: inv.id, degree: inv.intendedDegree } }, now);
       return u.id;
     });
@@ -301,6 +334,50 @@ export async function setMemberStatus(
       await tx.update(sessions).set({ revokedAt: now }).where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
     await appendAudit(tx, { actorId: ctx.userId, action: "member.status", subjectId: userId, payload: { ...scopeOf(lodge), from: target.status, to: status, justification } }, now);
   });
+}
+
+async function memberAuthority(db: Db, ctx: Ctx, userId: string, justification: string, now: Date) {
+  if (justification.trim().length < 5) throw new Invalid("justificativa obrigatória");
+  const target = await loadSubject(db, userId, now);
+  if (!target?.lodgeId) throw new NotFound("membro");
+  const lodge = await lodgeOf(db, target.lodgeId);
+  const actor = await actorOf(db, ctx, now);
+  if (ctx.userId === userId) throw new Forbidden("use as opções do seu próprio perfil");
+  const isPot = holds(actor, [POTENCIA], { jurisdictionId: lodge.jurisdictionId }, now);
+  if (!isPot && !holds(actor, [VM], { lodgeId: lodge.id }, now)) throw new Forbidden("somente o Venerável da Loja ou a Administração da Potência");
+  // autoridade da Potência só é mexida por outra autoridade da Potência
+  if (target.offices.some((o) => o.name === POTENCIA && officeActive(o, now)) && !isPot) throw new Forbidden("somente a Administração da Potência altera o acesso de outra autoridade da Potência");
+  return { lodge };
+}
+
+/** Perdeu o autenticador e os códigos de recuperação: a autoridade redefine o 2FA do membro (ele cadastra um novo no próximo acesso). */
+export async function resetMemberTotp(db: Db, ctx: Ctx, userId: string, justification: string, now = new Date()) {
+  const { lodge } = await memberAuthority(db, ctx, userId, justification, now);
+  await db.transaction(async (t) => {
+    const tx = t as unknown as Db;
+    await tx.delete(userTotp).where(eq(userTotp.userId, userId));
+    await clearRecoveryCodes(tx, userId);
+    await tx.update(sessions).set({ revokedAt: now }).where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+    await appendAudit(tx, { actorId: ctx.userId, action: "auth.2fa_reset", subjectId: userId, payload: { ...scopeOf(lodge), justification } }, now);
+  });
+}
+
+/** Membro sem acesso ao e-mail antigo: a autoridade troca o endereço (sem exibi-los na auditoria). O membro confirma o novo e usa "Esqueci a senha". */
+export async function changeMemberEmail(db: Db, ctx: Ctx, userId: string, newEmail: string, justification: string, now = new Date()) {
+  const email = newEmail.trim().toLowerCase();
+  if (!EMAIL_RE.test(email) || email.length > 200) throw new Invalid("e-mail inválido");
+  const { lodge } = await memberAuthority(db, ctx, userId, justification, now);
+  const [taken] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
+  if (taken) throw new Invalid("este e-mail já está em uso por outra conta");
+  const [cur] = await db.select({ email: users.email }).from(users).where(eq(users.id, userId));
+  await db.transaction(async (t) => {
+    const tx = t as unknown as Db;
+    await tx.update(users).set({ email, emailVerifiedAt: null, failedAttempts: 0, lockedUntil: null }).where(eq(users.id, userId));
+    await tx.delete(emailTokens).where(eq(emailTokens.userId, userId));
+    await tx.update(sessions).set({ revokedAt: now }).where(and(eq(sessions.userId, userId), isNull(sessions.revokedAt)));
+    await appendAudit(tx, { actorId: ctx.userId, action: "member.email_changed", subjectId: userId, payload: { ...scopeOf(lodge), from: mask(cur.email), to: mask(email), justification } }, now);
+  });
+  return { verifyToken: await issueEmailToken(db, userId, "verify", now) };
 }
 
 /** Autoridades leem a auditoria do próprio escopo: Potência (jurisdição) ou Venerável/Secretário (Loja). */

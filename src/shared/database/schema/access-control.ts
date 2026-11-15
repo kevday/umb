@@ -65,7 +65,7 @@ export const degreeRequests = pgTable("degree_requests", {
   createdAt: ts("created_at").defaultNow().notNull(),
 });
 
-/** origin = 'bootstrap' é a única exceção à aprovação dupla (fundador, com evidência auditada). */
+/** Exceções à aprovação dupla, ambas auditadas: 'bootstrap' (fundador, com evidência) e 'potencia' (convite aprovado na criação pela Administração da Potência). */
 export const degreeAssignments = pgTable(
   "degree_assignments",
   {
@@ -80,7 +80,7 @@ export const degreeAssignments = pgTable(
   (t) => [
     check(
       "dual_approval",
-      sql`${t.origin} = 'bootstrap' OR (${t.approvedBy} <> ${t.requestedBy} AND ${t.approvedBy} <> ${t.userId})`,
+      sql`${t.origin} in ('bootstrap', 'potencia') OR (${t.approvedBy} <> ${t.requestedBy} AND ${t.approvedBy} <> ${t.userId})`,
     ),
   ],
 );

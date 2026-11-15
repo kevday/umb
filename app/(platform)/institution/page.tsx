@@ -1,11 +1,12 @@
 import { RITES } from "@/theme/rites";
+import { readSecretFlash } from "@/web/flash";
 import { requireMemberPage } from "@/web/session";
 import { getDb } from "@/web/db";
 import { Flash, grau, type SP } from "@/web/ui";
 import { Forbidden } from "@/core/errors";
 import { institutionOverview } from "@/access-control/services/queries";
 import {
-  degreeDecide, degreeRequest, inviteApprove, inviteCreate, lodgeCreate, officeAppoint, officeEnd, riteSet, statusSet,
+  degreeDecide, degreeRequest, flashClear, inviteApprove, inviteCreate, inviteRevoke, memberEmailChange, memberTotpReset, lodgeCreate, officeAppoint, officeEnd, riteSet, statusSet,
 } from "../actions";
 
 const CARGOS = ["Venerável Mestre", "Primeiro Vigilante", "Segundo Vigilante", "Orador", "Secretário", "Tesoureiro", "Hospitaleiro", "Mestre de Cerimônias", "Administração da Potência"];
@@ -19,10 +20,22 @@ export default async function Institution({ searchParams }: { searchParams: Prom
     if (e instanceof Forbidden) return <><h1>Instituição</h1><p className="msg err">{e.reason === "mfa_required" ? "Confirme o 2FA em Configurações para acessar esta área." : "Você não exerce cargo com competência administrativa."}</p></>;
     throw e;
   }
+  const handoff = await readSecretFlash("invite");
+  const [handoffMail, handoffLink] = handoff ? handoff.split("|") : [];
+  const isPot = ov.jurisdictions.length > 0;
   return (
     <>
       <h1>Instituição</h1>
       <Flash s={s} />
+      {handoffLink && (
+        <form action={flashClear} className="card stack">
+          <input type="hidden" name="name" value="invite" /><input type="hidden" name="path" value="/institution" />
+          <strong>Link para entregar a {handoffMail}</strong>
+          <code>{handoffLink}</code>
+          <p className="mut">Copie e envie por um canal seguro. Este aviso some em 2 minutos.</p>
+          <button className="sec">Já copiei</button>
+        </form>
+      )}
       {ov.jurisdictions.map((j) => (
         <form key={j.id} action={lodgeCreate} className="card row">
           <input type="hidden" name="jurisdictionId" value={j.id} />
@@ -61,6 +74,18 @@ export default async function Institution({ searchParams }: { searchParams: Prom
                         <select name="status" defaultValue={m.status}>{STATUS.map((x) => <option key={x}>{x}</option>)}</select>
                         <input name="justification" placeholder="Justificativa" required /><button className="sec">Alterar status</button>
                       </form>
+                      <details>
+                        <summary className="mut">Acesso da conta (2FA e e-mail)</summary>
+                        <form action={memberTotpReset} className="inline">
+                          <input type="hidden" name="userId" value={m.userId} />
+                          <input name="justification" placeholder="Justificativa" required /><button className="sec">Redefinir 2FA</button>
+                        </form>
+                        <form action={memberEmailChange} className="inline">
+                          <input type="hidden" name="userId" value={m.userId} />
+                          <input name="newEmail" type="email" placeholder="Novo e-mail" required />
+                          <input name="justification" placeholder="Justificativa" required /><button className="sec">Trocar e-mail</button>
+                        </form>
+                      </details>
                     </td>
                   </tr>
                 ))}
@@ -84,13 +109,17 @@ export default async function Institution({ searchParams }: { searchParams: Prom
           {invitations.map((i) => (
             <div className="card row" key={i.id}>
               <span>{i.email} · {grau(i.degree)} {i.approved ? <span className="tag">aprovado</span> : <span className="tag">aguardando aprovação</span>}</span>
-              {!i.approved && <form action={inviteApprove} className="inline"><input type="hidden" name="id" value={i.id} /><button>Aprovar</button></form>}
+              <span className="row">
+                {!i.approved && <form action={inviteApprove} className="inline"><input type="hidden" name="id" value={i.id} /><button>Aprovar</button></form>}
+                <form action={inviteRevoke} className="inline"><input type="hidden" name="id" value={i.id} /><button className="sec">Cancelar</button></form>
+              </span>
             </div>
           ))}
           <form action={inviteCreate} className="card row">
             <input type="hidden" name="lodgeId" value={lodge.id} />
             <input name="email" type="email" placeholder="E-mail do convidado" required />
             <select name="degree" aria-label="Grau inicial"><option value="1">Aprendiz</option><option value="2">Companheiro (aprovação da Potência)</option><option value="3">Mestre (aprovação da Potência)</option></select>
+            {isPot && <label className="row"><input type="checkbox" name="approveNow" /> Aprovar já (Administração da Potência)</label>}
             <button>Criar convite</button>
           </form>
 

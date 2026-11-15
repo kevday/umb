@@ -6,6 +6,8 @@ import { Invalid } from "../errors";
 import { decrypt, encrypt, randomToken, sha256 } from "./crypto";
 import { assertPasswordPolicy, dummyHash, hashPassword, verifyPassword } from "./password";
 import { generateSecret, otpauthUri, stepOf, verifyTotp } from "./totp";
+import { RECOVERY_RE, clearRecoveryCodes, consumeRecoveryCode, generateRecoveryCodes, normalizeRecovery } from "./recovery";
+import { throttle } from "./throttle";
 
 const GENERIC = "credenciais inválidas";
 const MIN = 60_000, DAY = 24 * 60 * MIN;
@@ -79,16 +81,42 @@ async function checkCode(db: Db, userId: string, code: string, now: Date, requir
   if (!consumed) throw new Invalid("código inválido");
 }
 
-export async function confirmTotp(db: Db, userId: string, code: string, now = new Date()) {
+/** Ativa o 2FA e devolve os códigos de recuperação (mostrados uma única vez). */
+export async function confirmTotp(db: Db, userId: string, code: string, now = new Date()): Promise<string[]> {
+  await throttle(db, `mfa:${userId}`, 10, 10 * MIN, now);
   await checkCode(db, userId, code, now, false);
   await db.update(userTotp).set({ confirmedAt: now }).where(and(eq(userTotp.userId, userId), isNull(userTotp.confirmedAt)));
+  return generateRecoveryCodes(db, userId);
 }
 
 export async function verifyMfa(db: Db, token: string, code: string, now = new Date()) {
   const s = await validateSession(db, token, now);
   if (!s) throw new Invalid("sessão inválida");
-  await checkCode(db, s.userId, code, now, true);
+  await throttle(db, `mfa:${s.userId}`, 10, 10 * MIN, now); // 10 tentativas a cada 10 minutos
+  if (RECOVERY_RE.test(normalizeRecovery(code))) {
+    if (!(await consumeRecoveryCode(db, s.userId, code, now))) throw new Invalid("código inválido");
+  } else await checkCode(db, s.userId, code, now, true);
   await db.update(sessions).set({ mfaVerified: true }).where(eq(sessions.id, s.sessionId));
+}
+
+/** Troca de aplicativo autenticador: exige a senha e um código válido do aparelho atual (ou de recuperação). */
+export async function replaceTotp(db: Db, s: SessionInfo, password: string, code: string, now = new Date()) {
+  const [u] = await db.select().from(users).where(eq(users.id, s.userId));
+  if (!(await verifyPassword(u.passwordHash, password))) throw new Invalid("senha incorreta");
+  await throttle(db, `mfa:${s.userId}`, 10, 10 * MIN, now);
+  if (RECOVERY_RE.test(normalizeRecovery(code))) { if (!(await consumeRecoveryCode(db, s.userId, code, now))) throw new Invalid("código inválido"); }
+  else await checkCode(db, s.userId, code, now, true);
+  await db.delete(userTotp).where(eq(userTotp.userId, s.userId));
+  await clearRecoveryCodes(db, s.userId);
+  await revokeAllSessions(db, s.userId, s.sessionId, now);
+}
+
+/** Novos códigos de recuperação (os anteriores deixam de valer). Exige a senha. */
+export async function regenerateRecoveryCodes(db: Db, userId: string, password: string): Promise<string[]> {
+  const [u] = await db.select().from(users).where(eq(users.id, userId));
+  if (!(await verifyPassword(u.passwordHash, password))) throw new Invalid("senha incorreta");
+  if (!(await hasMfa(db, userId))) throw new Invalid("ative o 2FA primeiro");
+  return generateRecoveryCodes(db, userId);
 }
 
 export async function hasMfa(db: Db, userId: string) {
@@ -102,16 +130,16 @@ export async function issueEmailToken(db: Db, userId: string, kind: "verify" | "
   return token;
 }
 
-async function consumeToken(db: Db, token: string, kind: "verify" | "reset", now: Date) {
+async function consumeToken(db: Db, token: string, kind: "verify" | "reset" | "email_change", now: Date) {
   const [row] = await db.update(emailTokens).set({ usedAt: now })
     .where(and(eq(emailTokens.tokenHash, sha256(token)), eq(emailTokens.kind, kind), isNull(emailTokens.usedAt), gt(emailTokens.expiresAt, now)))
     .returning();
   if (!row) throw new Invalid("link inválido ou expirado");
-  return row.userId;
+  return row;
 }
 
 export async function verifyEmail(db: Db, token: string, now = new Date()) {
-  const id = await consumeToken(db, token, "verify", now);
+  const { userId: id } = await consumeToken(db, token, "verify", now);
   await db.update(users).set({ emailVerifiedAt: now }).where(eq(users.id, id));
 }
 
@@ -122,7 +150,7 @@ export async function requestPasswordReset(db: Db, email: string, now = new Date
 }
 
 export async function resetPassword(db: Db, token: string, newPassword: string, now = new Date()) {
-  const id = await consumeToken(db, token, "reset", now);
+  const { userId: id } = await consumeToken(db, token, "reset", now);
   const [u] = await db.select().from(users).where(eq(users.id, id));
   assertPasswordPolicy(newPassword, u.email, u.username);
   await db.update(users).set({ passwordHash: await hashPassword(newPassword), failedAttempts: 0, lockedUntil: null }).where(eq(users.id, id));
@@ -135,6 +163,38 @@ export async function changePassword(db: Db, s: SessionInfo, current: string, ne
   assertPasswordPolicy(next, u.email, u.username);
   await db.update(users).set({ passwordHash: await hashPassword(next) }).where(eq(users.id, u.id));
   await revokeAllSessions(db, u.id, s.sessionId, now);
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Troca de e-mail pelo próprio usuário: confirma a senha e manda um link para o NOVO endereço (prova de posse). */
+export async function requestEmailChange(db: Db, s: SessionInfo, password: string, newEmail: string, now = new Date()) {
+  const email = newEmail.trim().toLowerCase();
+  if (!EMAIL_RE.test(email) || email.length > 200) throw new Invalid("e-mail inválido");
+  const [u] = await db.select().from(users).where(eq(users.id, s.userId));
+  if (!(await verifyPassword(u.passwordHash, password))) throw new Invalid("senha incorreta");
+  if (email === u.email) throw new Invalid("este já é o seu e-mail");
+  await throttle(db, `emailchange:${s.userId}`, 5, 60 * MIN, now);
+  const [taken] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
+  if (taken) throw new Invalid("este e-mail já está em uso por outra conta");
+  const token = randomToken();
+  await db.insert(emailTokens).values({ userId: s.userId, kind: "email_change", tokenHash: sha256(token), newEmail: email, expiresAt: new Date(now.getTime() + 60 * MIN) });
+  return { token, newEmail: email, oldEmail: u.email };
+}
+
+/** Efetiva a troca ao abrir o link enviado ao novo endereço. Encerra todas as sessões. */
+export async function confirmEmailChange(db: Db, token: string, now = new Date()) {
+  const row = await consumeToken(db, token, "email_change", now);
+  if (!row.newEmail) throw new Invalid("link inválido ou expirado");
+  const [old] = await db.select({ email: users.email }).from(users).where(eq(users.id, row.userId));
+  try {
+    await db.update(users).set({ email: row.newEmail, emailVerifiedAt: now }).where(eq(users.id, row.userId));
+  } catch (e) {
+    if (/duplicate key|unique/i.test(`${(e as Error).message} ${(e as { cause?: Error }).cause?.message ?? ""}`)) throw new Invalid("este e-mail já está em uso por outra conta");
+    throw e;
+  }
+  await revokeAllSessions(db, row.userId, undefined, now);
+  return { oldEmail: old.email, newEmail: row.newEmail };
 }
 
 export { stepOf };
