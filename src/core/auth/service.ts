@@ -126,6 +126,12 @@ export async function verifyEmail(db: Db, token: string, now = new Date()) {
   await db.update(users).set({ emailVerifiedAt: now }).where(eq(users.id, row.userId));
 }
 
+/** Reenvio não enumerável de confirmação: só emite token para conta existente ainda não verificada. */
+export async function requestEmailVerification(db: Db, email: string, now = new Date()) {
+  const [u] = await db.select().from(users).where(eq(users.email, email.trim().toLowerCase()));
+  return u && !u.deletedAt && !u.emailVerifiedAt ? issueEmailToken(db, u.id, "verify", now) : null;
+}
+
 /** Não revela se o e-mail existe: devolve o token (para envio) ou null. */
 export async function requestPasswordReset(db: Db, email: string, now = new Date()) {
   const [u] = await db.select().from(users).where(eq(users.email, email.trim().toLowerCase()));
