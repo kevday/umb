@@ -49,13 +49,11 @@ export async function registerAction(f: FormData) {
   if (String(f.get("password")) !== String(f.get("password2"))) back(path, new (await import("@/core/errors")).Invalid("as senhas não conferem"));
   const email = str(f, "email");
   const r = await registerWithInvitation(getDb(), { token, email, username: str(f, "username").toLowerCase(), fullName: str(f, "fullName"), password: String(f.get("password") ?? "") }).catch((e) => back(path, e));
-  try {
-    await sendMail(email, "Confirme seu e-mail", `Confirme seu cadastro: ${appUrl()}/verify?token=${r.verifyToken}`);
-    done("/login", "Cadastro criado. Confirme o e-mail pelo link enviado.");
-  } catch (e) {
-    console.error("[mail:register] conta criada, mas o envio de confirmação falhou", e);
-    done("/verify/resend", "A conta foi criada, mas não conseguimos enviar o e-mail. Informe o endereço cadastrado para solicitar novo envio.");
-  }
+  let mailSent = true;
+  try { await sendMail(email, "Confirme seu e-mail", `Confirme seu cadastro: ${appUrl()}/verify?token=${r.verifyToken}`); }
+  catch (e) { mailSent = false; console.error("[mail:register] conta criada, mas o envio de confirmação falhou", e); }
+  if (mailSent) done("/login", "Cadastro criado. Confirme o e-mail pelo link enviado.");
+  done("/verify/resend", "A conta foi criada, mas não conseguimos enviar o e-mail. Informe o endereço cadastrado para solicitar novo envio.");
 }
 
 export async function resendVerificationAction(f: FormData) {
