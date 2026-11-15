@@ -1,7 +1,7 @@
 "use server";
 import { redirect } from "next/navigation";
 import * as auth from "@/core/auth/service";
-import { Forbidden } from "@/core/errors";
+import { Forbidden, Invalid } from "@/core/errors";
 import { deleteAccount, updateProfile } from "@/core/account";
 import { setThemeColor } from "@/theme/service";
 import { resetPublicLook, setPublicLook } from "@/theme/site";
@@ -112,7 +112,8 @@ export async function totpConfirm(f: FormData) {
 export async function emailChangeRequest(f: FormData) {
   await run("/settings", async (p, db) => {
     const r = await auth.requestEmailChange(db, p.session, String(f.get("current") ?? ""), str(f, "email"));
-    await sendMail(r.email, "Confirme seu novo e-mail", `Confirme a alteração do endereço de e-mail (válido por 1 hora): ${appUrl()}/email/change?token=${r.token}`);
+    try { await sendMail(r.email, "Confirme seu novo e-mail", `Confirme a alteração do endereço de e-mail (válido por 1 hora): ${appUrl()}/email/change?token=${r.token}`); }
+    catch (e) { console.error("[mail:email-change] envio falhou", e); throw new Invalid("não foi possível enviar a confirmação. Verifique o Resend e tente novamente"); }
   }, "Enviamos um link de confirmação ao novo endereço. O e-mail atual permanece válido até a confirmação.");
 }
 export async function passwordChange(f: FormData) {
