@@ -152,6 +152,7 @@ export async function requestMfaReset(db: Db, sessionToken: string, now = new Da
   if (!session || !session.mfaRequired || session.mfaVerified) throw new Invalid("sessão de recuperação inválida");
   const [u] = await db.select({ id: users.id, email: users.email, emailVerifiedAt: users.emailVerifiedAt }).from(users).where(eq(users.id, session.userId));
   if (!u || !u.emailVerifiedAt) throw new Invalid("a conta precisa ter um e-mail verificado para recuperar o autenticador");
+  await db.update(emailTokens).set({ usedAt: now }).where(and(eq(emailTokens.userId, u.id), eq(emailTokens.kind, "mfa_reset"), isNull(emailTokens.usedAt)));
   const token = await issueEmailToken(db, u.id, "mfa_reset", now);
   return { token, email: u.email };
 }
@@ -175,6 +176,7 @@ export async function requestEmailChange(db: Db, s: SessionInfo, currentPassword
   if (email === u.email.toLowerCase()) throw new Invalid("informe um endereço diferente do atual");
   const [taken] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
   if (taken) throw new Invalid("este endereço de e-mail já está associado a uma conta");
+  await db.update(emailTokens).set({ usedAt: now }).where(and(eq(emailTokens.userId, u.id), eq(emailTokens.kind, "change_email"), isNull(emailTokens.usedAt)));
   const token = randomToken();
   await db.insert(emailTokens).values({ userId: u.id, kind: "change_email", targetEmail: email, tokenHash: sha256(token), expiresAt: new Date(now.getTime() + 60 * MIN) });
   return { token, email };
