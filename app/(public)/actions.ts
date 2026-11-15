@@ -21,6 +21,21 @@ export async function loginAction(f: FormData) {
   redirect(r.status === "mfa_required" ? "/login/mfa" : "/");
 }
 
+export async function mfaResetRequestAction() {
+  const token = await sessionToken();
+  if (!token) redirect("/login");
+  await throttle(getDb(), `mfa-reset:${await ipOf()}`, 3, 60 * 60_000).catch((e) => back("/login/mfa", e));
+  const r = await auth.requestMfaReset(getDb(), token).catch((e) => back("/login/mfa", e));
+  await sendMail(r.email, "Recuperação do autenticador", `Foi solicitada a remoção do autenticador 2FA da sua conta. Se foi você, confirme em até 15 minutos: ${appUrl()}/login/mfa/reset?token=${r.token}. Após a confirmação, será necessário entrar novamente e cadastrar um novo autenticador. Se não reconhece esta solicitação, ignore esta mensagem.`);
+  done("/login/mfa", "Enviamos um link de recuperação ao e-mail verificado da conta.");
+}
+
+export async function mfaResetConfirmAction(f: FormData) {
+  const token = str(f, "token");
+  await auth.confirmMfaReset(getDb(), token).catch((e) => back(`/login/mfa/reset?token=${encodeURIComponent(token)}`, e));
+  done("/login", "Autenticador removido. Entre novamente e cadastre um novo aplicativo autenticador.");
+}
+
 export async function mfaAction(f: FormData) {
   const token = await sessionToken();
   if (!token) redirect("/login");
