@@ -80,7 +80,7 @@ export async function inviteCreate(f: FormData) {
     const r = await inst.createInvitation(db, p.ctx, { lodgeId: str(f, "lodgeId"), email, intendedDegree: Number(str(f, "degree")) || 1 });
     try { await sendMail(email, "Convite para a rede", `Seu convite (válido por 14 dias, após aprovação): ${appUrl()}/register?token=${r.token}`); }
     catch (e) { console.error("[mail:invitation] convite registrado, mas o envio falhou", e); }
-  }, "Convite criado e enviado. Ele só vale depois de aprovado por outra autoridade.");
+  }, "Convite registrado. Convites de Aprendiz criados pela Potência já estão aprovados; os demais aguardam a autoridade competente.");
 }
 export async function inviteApprove(f: FormData) { await run("/institution", (p, db) => inst.approveInvitation(db, p.ctx, str(f, "id")), "Convite aprovado."); }
 export async function degreeRequest(f: FormData) { await run("/institution", (p, db) => inst.requestDegree(db, p.ctx, str(f, "userId")), "Solicitação registrada. Falta a aprovação."); }
