@@ -71,6 +71,13 @@
       "when": 1794750000000,
       "tag": "0009_email_change",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794750060000,
+      "tag": "0010_mfa_recovery",
+      "breakpoints": true
     }
   ]
 }
