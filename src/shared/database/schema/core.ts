@@ -41,7 +41,7 @@ export const userTotp = pgTable("user_totp", {
   lastStep: integer("last_step"),
 });
 
-export const emailTokenKind = pgEnum("email_token_kind", ["verify", "reset", "change_email"]);
+export const emailTokenKind = pgEnum("email_token_kind", ["verify", "reset", "change_email", "mfa_reset"]);
 export const emailTokens = pgTable("email_tokens", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id),
