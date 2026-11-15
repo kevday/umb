@@ -26,7 +26,12 @@ export async function mfaResetRequestAction() {
   if (!token) redirect("/login");
   await throttle(getDb(), `mfa-reset:${await ipOf()}`, 3, 60 * 60_000).catch((e) => back("/login/mfa", e));
   const r = await auth.requestMfaReset(getDb(), token).catch((e) => back("/login/mfa", e));
-  await sendMail(r.email, "Recuperação do autenticador", `Foi solicitada a remoção do autenticador 2FA da sua conta. Se foi você, confirme em até 15 minutos: ${appUrl()}/login/mfa/reset?token=${r.token}. Após a confirmação, será necessário entrar novamente e cadastrar um novo autenticador. Se não reconhece esta solicitação, ignore esta mensagem.`);
+  try {
+    await sendMail(r.email, "Recuperação do autenticador", `Foi solicitada a remoção do autenticador 2FA da sua conta. Se foi você, confirme em até 15 minutos: ${appUrl()}/login/mfa/reset?token=${r.token}. Após a confirmação, será necessário entrar novamente e cadastrar um novo autenticador. Se não reconhece esta solicitação, ignore esta mensagem.`);
+  } catch (e) {
+    console.error("[mail:mfa-reset] envio falhou", e);
+    done("/login/mfa", "Não foi possível enviar o link de recuperação. Verifique o serviço de e-mail e tente novamente.");
+  }
   done("/login/mfa", "Enviamos um link de recuperação ao e-mail verificado da conta.");
 }
 
