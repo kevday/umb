@@ -108,6 +108,12 @@ export async function totpStart() { await run("/settings", async (p, db) => { co
 export async function totpConfirm(f: FormData) {
   await run("/settings", async (p, db) => { await auth.confirmTotp(db, p.session.userId, str(f, "code")); await auth.markSessionMfa(db, p.session.sessionId); }, "2FA ativado.");
 }
+export async function emailChangeRequest(f: FormData) {
+  await run("/settings", async (p, db) => {
+    const r = await auth.requestEmailChange(db, p.session, String(f.get("current") ?? ""), str(f, "email"));
+    await sendMail(r.email, "Confirme seu novo e-mail", `Confirme a alteração do endereço de e-mail (válido por 1 hora): ${appUrl()}/email/change?token=${r.token}`);
+  }, "Enviamos um link de confirmação ao novo endereço. O e-mail atual permanece válido até a confirmação.");
+}
 export async function passwordChange(f: FormData) {
   await run("/settings", (p, db) => auth.changePassword(db, p.session, String(f.get("current") ?? ""), String(f.get("next") ?? "")), "Senha alterada. As outras sessões foram encerradas.");
 }
