@@ -76,7 +76,10 @@ export async function enrollTotp(db: Db, userId: string, account: string) {
 async function checkCode(db: Db, userId: string, code: string, now: Date, requireConfirmed: boolean) {
   const [t] = await db.select().from(userTotp).where(eq(userTotp.userId, userId));
   if (!t || (requireConfirmed && !t.confirmedAt)) throw new Invalid("código inválido");
-  const step = verifyTotp(decrypt(t.secretEnc), code, now.getTime());
+  let secret: string;
+  try { secret = decrypt(t.secretEnc); }
+  catch { throw new Invalid("não foi possível abrir o segredo do autenticador; a chave de criptografia da instalação precisa ser conferida"); }
+  const step = verifyTotp(secret, code, now.getTime());
   if (step === null || (t.lastStep !== null && step <= t.lastStep)) throw new Invalid("código inválido");
   const [consumed] = await db.update(userTotp).set({ lastStep: step })
     .where(and(
@@ -104,13 +107,13 @@ export async function hasMfa(db: Db, userId: string) {
   return !!t?.confirmedAt;
 }
 
-export async function issueEmailToken(db: Db, userId: string, kind: "verify" | "reset", now = new Date()) {
+export async function issueEmailToken(db: Db, userId: string, kind: "verify" | "reset" | "mfa_reset", now = new Date()) {
   const token = randomToken();
-  await db.insert(emailTokens).values({ userId, kind, tokenHash: sha256(token), expiresAt: new Date(now.getTime() + (kind === "verify" ? DAY : 60 * MIN)) });
+  await db.insert(emailTokens).values({ userId, kind, tokenHash: sha256(token), expiresAt: new Date(now.getTime() + (kind === "verify" ? DAY : kind === "mfa_reset" ? 15 * MIN : 60 * MIN)) });
   return token;
 }
 
-async function consumeToken(db: Db, token: string, kind: "verify" | "reset" | "change_email", now: Date) {
+async function consumeToken(db: Db, token: string, kind: "verify" | "reset" | "change_email" | "mfa_reset", now: Date) {
   const [row] = await db.update(emailTokens).set({ usedAt: now })
     .where(and(eq(emailTokens.tokenHash, sha256(token)), eq(emailTokens.kind, kind), isNull(emailTokens.usedAt), gt(emailTokens.expiresAt, now)))
     .returning();
@@ -135,6 +138,26 @@ export async function resetPassword(db: Db, token: string, newPassword: string, 
   assertPasswordPolicy(newPassword, u.email, u.username);
   await db.update(users).set({ passwordHash: await hashPassword(newPassword), failedAttempts: 0, lockedUntil: null }).where(eq(users.id, row.userId));
   await revokeAllSessions(db, row.userId, undefined, now);
+}
+
+/** Em recuperação, o usuário já provou a senha no login; exige confirmação adicional no e-mail verificado. */
+export async function requestMfaReset(db: Db, sessionToken: string, now = new Date()) {
+  const session = await validateSession(db, sessionToken, now);
+  if (!session || !session.mfaRequired || session.mfaVerified) throw new Invalid("sessão de recuperação inválida");
+  const [u] = await db.select({ id: users.id, email: users.email, emailVerifiedAt: users.emailVerifiedAt }).from(users).where(eq(users.id, session.userId));
+  if (!u || !u.emailVerifiedAt) throw new Invalid("a conta precisa ter um e-mail verificado para recuperar o autenticador");
+  const token = await issueEmailToken(db, u.id, "mfa_reset", now);
+  return { token, email: u.email };
+}
+
+/** Remove o TOTP somente após uso único do link enviado ao e-mail já verificado; encerra todas as sessões. */
+export async function confirmMfaReset(db: Db, token: string, now = new Date()) {
+  const row = await consumeToken(db, token, "mfa_reset", now);
+  await db.transaction(async (tx) => {
+    await tx.delete(userTotp).where(eq(userTotp.userId, row.userId));
+    await tx.update(sessions).set({ revokedAt: now })
+      .where(and(eq(sessions.userId, row.userId), isNull(sessions.revokedAt)));
+  });
 }
 
 /** Solicita alteração de e-mail com senha atual e confirmação enviada ao novo endereço. */
