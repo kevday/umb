@@ -56,6 +56,15 @@ describe("convites e cadastro", () => {
     await approveInvitation(db, A, inv.invitationId);
     await expect(registerWithInvitation(db, { token: inv.token, email: "e@teste.org", username: "expir", fullName: "E", password: PW }, new Date(Date.now() + 20 * 86_400_000))).rejects.toThrow(Invalid);
   });
+  it("recusa e-mail já cadastrado e convite ainda válido duplicado", async () => {
+    const { db, f, B } = await world();
+    const [existing] = await db.insert(users).values({ email: "existente@teste.org", username: "existente", passwordHash: "x" }).returning();
+    await expect(createInvitation(db, B, { lodgeId: f.lodgeId, email: "existente@teste.org", intendedDegree: 1 })).rejects.toThrow("já pertence a uma conta");
+    const first = await createInvitation(db, B, { lodgeId: f.lodgeId, email: "pendente@teste.org", intendedDegree: 1 });
+    await expect(createInvitation(db, B, { lodgeId: f.lodgeId, email: "pendente@teste.org", intendedDegree: 1 })).rejects.toThrow("já existe um convite válido");
+    void existing;
+    void first;
+  });
   it("membro comum e administrador técnico não convidam", async () => {
     const { db, f, member } = await world();
     const comum = await member({ name: "comum", degree: 2 });
