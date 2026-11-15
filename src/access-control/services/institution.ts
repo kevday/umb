@@ -122,14 +122,18 @@ export async function createInvitation(db: Db, ctx: Ctx, i: { lodgeId: string; e
     eq(invitations.email, email), isNull(invitations.usedAt), gt(invitations.expiresAt, now),
   ));
   if (existingInvite) throw new Invalid("já existe um convite válido para este e-mail");
+  const isPotencia = holds(actor, [POTENCIA], { jurisdictionId: lodge.jurisdictionId }, now);
+  if (i.intendedDegree > 1 && isPotencia)
+    throw new Invalid("para convidar alguém acima de Aprendiz, a Loja deve registrar o convite e a Administração da Potência fará a aprovação");
+  const directPotencia = i.intendedDegree === 1 && isPotencia;
   const token = randomToken();
   const [inv] = await db.transaction(async (t) => {
     const tx = t as unknown as Db;
     const r = await tx.insert(invitations).values({
       lodgeId: i.lodgeId, email, intendedDegree: i.intendedDegree,
-      tokenHash: sha256(token), createdBy: ctx.userId, expiresAt: new Date(now.getTime() + 14 * DAY),
+      tokenHash: sha256(token), createdBy: ctx.userId, approvedBy: directPotencia ? ctx.userId : undefined, expiresAt: new Date(now.getTime() + 14 * DAY),
     }).returning();
-    await appendAudit(tx, { actorId: ctx.userId, action: "invitation.created", payload: { ...scopeOf(lodge), invitationId: r[0].id, degree: i.intendedDegree } }, now);
+    await appendAudit(tx, { actorId: ctx.userId, action: directPotencia ? "invitation.created_and_approved" : "invitation.created", payload: { ...scopeOf(lodge), invitationId: r[0].id, degree: i.intendedDegree, directByPotencia: directPotencia } }, now);
     return r;
   });
   return { invitationId: inv.id, token };
@@ -174,7 +178,7 @@ export async function registerWithInvitation(
       await tx.update(invitations).set({ usedBy: u.id }).where(eq(invitations.id, inv.id));
       await tx.insert(profiles).values({ userId: u.id, fullName: i.fullName });
       await tx.insert(institutionalMemberships).values({ userId: u.id, lodgeId: inv.lodgeId, startsAt: now });
-      await tx.insert(degreeAssignments).values({ userId: u.id, degree: inv.intendedDegree, requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
+      await tx.insert(degreeAssignments).values({ userId: u.id, degree: inv.intendedDegree, origin: inv.createdBy === inv.approvedBy ? "potencia_direct" : "regular", requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
       await appendAudit(tx, { actorId: u.id, action: "member.registered", subjectId: u.id, payload: { ...scopeOf(lodge), invitationId: inv.id, degree: inv.intendedDegree } }, now);
       return u.id;
     });
