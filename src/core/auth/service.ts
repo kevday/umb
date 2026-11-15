@@ -193,6 +193,8 @@ export async function confirmEmailChange(db: Db, token: string, now = new Date()
   } catch {
     throw new Invalid("não foi possível utilizar este endereço de e-mail");
   }
+  // Tokens enviados ao endereço antigo (ex.: redefinição de senha) deixam de ser válidos.
+  await db.update(emailTokens).set({ usedAt: now }).where(and(eq(emailTokens.userId, row.userId), isNull(emailTokens.usedAt)));
   await revokeAllSessions(db, row.userId, undefined, now);
 }
 
