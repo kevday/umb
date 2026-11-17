@@ -145,7 +145,7 @@ Os itens abaixo não devem ser interpretados como resolvidos por esta branch:
 8. **Infraestrutura de e-mail:** configurar SPF, DKIM, domínio de envio e monitoramento de entrega.
 9. **Proteção por IP:** confiar em `x-forwarded-for` somente atrás de proxy conhecido e configurado; avaliar Redis/serviço distribuído se a taxa de requisições exigir.
 10. **Privacidade e conformidade:** definir controlador, encarregado, bases legais, termos, versão de aceite, política de privacidade e RIPD com assessoria competente.
-11. **Segurança externa:** executar pentest independente e revisão de código/RLS por segunda pessoa.
+11. **Dependências npm:** a instalação de CI reportou 7 avisos de auditoria (5 moderados e 2 altos); executar `npm audit`, identificar dependências afetadas e corrigir com atualização compatível, sem aplicar `npm audit fix --force` sem análise.\n12. **Segurança externa:** executar pentest independente e revisão de código/RLS por segunda pessoa.
 
 ## Testes e critérios de aceite
 
