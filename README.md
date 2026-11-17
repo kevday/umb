@@ -29,11 +29,11 @@ A branch `master` foi criada a partir de `main` para preservar as funcionalidade
 - Dez códigos de recuperação por ativação; o banco armazena somente hashes e cada código pode ser usado uma única vez.
 - Regeneração de códigos mediante confirmação da senha; os códigos anteriores são substituídos.
 - Troca de aplicativo autenticador mediante senha e prova do autenticador anterior ou código de recuperação.
-- Redefinição administrativa do 2FA com justificativa, revogação de sessões e registro de auditoria.
+- Recuperação autônoma do 2FA por link de uso único enviado ao e-mail verificado, após autenticação por senha; revoga sessões e registra auditoria.\n- Redefinição administrativa do 2FA com justificativa, revogação de sessões e registro de auditoria.
 - Ferramenta CLI de emergência exige `RESET_2FA_OPERATOR_ID`, identificando uma conta técnica ativa. O ator da auditoria passa a ser o operador, e não automaticamente a conta afetada.
 - Alteração de senha e recuperação por token revogam as demais sessões.
 
-**Limitação conhecida:** a recuperação por e-mail para o próprio usuário que perdeu simultaneamente o autenticador e todos os códigos de recuperação não foi incorporada nesta integração. Nesse caso, permanece o procedimento de redefinição pela autoridade competente ou pelo operador técnico autorizado.
+**Limitação conhecida:** a recuperação por e-mail depende de o usuário ainda conseguir entrar com a senha e ter acesso ao e-mail verificado. Se perdeu também o acesso ao e-mail ou a senha, permanece o procedimento de redefinição pela autoridade competente ou pelo operador técnico autorizado.
 
 ### Troca de e-mail e tokens
 
@@ -66,7 +66,7 @@ Migrações adicionadas nesta branch:
 |---|---|
 | `0010_performance_indexes` | Índices para progressões, cargos, tokens, amizades, mural, tópicos e respostas |
 | `0011_ace_degree_scope` | Coluna de Loja no histórico de Grau, backfill histórico e paridade de contexto do ACE SQL |
-| `0012_audit_scope_indexes` | Índices de expressão para consulta de auditoria por Loja/Jurisdição |
+| `0012_audit_scope_indexes` | Índices de expressão para consulta de auditoria por Loja/Jurisdição |\n| `0013_mfa_email_recovery` | Tipo de token para recuperação autônoma de MFA por e-mail verificado |
 
 Índices não substituem medição. O plano de execução deve ser conferido com `EXPLAIN (ANALYZE, BUFFERS)` usando volume representativo. Índices adicionais aumentam o custo de escrita e armazenamento; não devem ser adicionados sem observar as consultas reais.
 
@@ -110,7 +110,7 @@ Consulte `docs/configurador.md` e `docs/operacao.md` para variáveis de ambiente
 
 A sequência `0000` a `0009` desta branch preserva o histórico da `main`, incluindo `0009_account_recovery.sql`. As migrações `0009_email_change.sql`, `0010_mfa_recovery.sql` e `0011_potencia_direct_apprentice.sql` da branch de otimização não devem ser copiadas para este histórico: elas pertencem a uma linha divergente.
 
-A atualização desta branch adiciona `0010`, `0011` e `0012`. Antes de aplicar em qualquer banco com dados:
+A atualização desta branch adiciona `0010` a `0013`. Antes de aplicar em qualquer banco com dados:
 
 1. Faça backup consistente e teste a restauração.
 2. Aplique as migrações em uma cópia do banco.
