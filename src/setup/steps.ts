@@ -83,8 +83,9 @@ export async function provision(db: Db, i: Pick<SetupInput, "inst" | "tech">, no
 
 export async function doctor(db: Db, env: Record<string, string | undefined>): Promise<Check[]> {
   const out: Check[] = [], add = (name: string, level: Level, detail: string) => out.push({ name, level, detail });
-  const major = Number(process.versions.node.split(".")[0]);
-  add("Node.js", major >= 20 ? "ok" : "error", `v${process.versions.node} (mínimo 20)`);
+  const [major, minor] = process.versions.node.split(".").map(Number);
+  const nodeOk = (major === 22 && minor >= 12) || major === 24 || major >= 26;
+  add("Node.js", nodeOk ? "ok" : "error", `v${process.versions.node} (compatível com Vite 8 e Vitest 5: 22.12+, 24.x ou 26+)`);
   const kok = KEY_RE.test(env.DATA_ENCRYPTION_KEY ?? "");
   add("DATA_ENCRYPTION_KEY", kok ? "ok" : "error", kok ? "32 bytes em base64" : "inválida ou ausente: deve ter 32 bytes em base64");
   const url = env.APP_URL ?? "";
