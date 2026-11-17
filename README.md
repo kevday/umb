@@ -118,7 +118,7 @@ A atualização desta branch adiciona `0010` a `0013`. Antes de aplicar em qualq
 4. Execute `npm run doctor`.
 5. Compare os resultados de autorização antes/depois, especialmente membros com histórico de transferência entre Lojas.
 
-A migração `0011_ace_degree_scope` associa automaticamente um Grau à Loja somente quando encontra exatamente um vínculo que cobria a data da progressão. Registros ambíguos permanecem sem Loja e são bloqueados pelo `doctor`; precisam de saneamento administrativo documentado. Não atribua uma Loja por suposição.
+A migração `0011_ace_degree_scope` associa automaticamente um Grau à Loja somente quando encontra exatamente um vínculo que cobria a data da progressão. Como o histórico é append-only, a migração desabilita temporariamente o trigger de imutabilidade apenas durante o backfill, executado pelo owner, e o reabilita na mesma transação. Registros ambíguos permanecem sem Loja e são bloqueados pelo `doctor`; precisam de saneamento administrativo documentado. Não atribua uma Loja por suposição.
 
 ## Reset emergencial de 2FA via CLI
 
