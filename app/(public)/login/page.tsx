@@ -14,6 +14,7 @@ export default async function Login({ searchParams }: { searchParams: Promise<SP
         <input id="password" name="password" type="password" autoComplete="current-password" required />
         <button>Entrar</button>
         <Link href="/forgot" className="mut">Esqueci a senha</Link>
+        <Link href="/verify/resend" className="mut">Reenviar confirmação de e-mail</Link>
       </form>
       <p className="mut">O cadastro é feito apenas por convite da sua Loja.</p>
     </main>
