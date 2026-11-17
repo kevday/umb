@@ -49,7 +49,7 @@ export async function mfaResetRequestAction() {
 export async function mfaResetConfirmAction(f: FormData) {
   const token = str(f, "token");
   await auth.confirmMfaReset(getDb(), token)
-    .catch((e) => back(`/login/mfa/reset?token=${encodeURIComponent(token)}`, e));
+    .catch((e) => back("/login/mfa/reset", e));
   done("/login", "Autenticador removido. Entre novamente e cadastre um novo aplicativo autenticador.");
 }
 
