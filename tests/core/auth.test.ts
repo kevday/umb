@@ -164,3 +164,37 @@ describe("troca de e-mail: concorrência lógica e invalidação", () => {
     expect(await auth.validateSession(db, login.token)).toBeNull();
   });
 });
+
+
+describe("recuperação por e-mail", () => {
+  it("reenvia confirmação sem revelar existência da conta", async () => {
+    const { db, u } = await setup();
+    await db.update(users).set({ emailVerifiedAt: null }).where(eq(users.id, u.id));
+    const token = await auth.requestEmailVerification(db, "a@t.org");
+    expect(token).toBeTruthy();
+    expect(await auth.requestEmailVerification(db, "inexistente@t.org")).toBeNull();
+    await auth.verifyEmail(db, token!);
+    expect(await auth.requestEmailVerification(db, "a@t.org")).toBeNull();
+  });
+
+  it("recupera 2FA pelo e-mail verificado, com token único e revogação de sessões", async () => {
+    const { db, u } = await setup();
+    const t0 = new Date("2026-11-16T12:00:00Z");
+    const { secret } = await auth.enrollTotp(db, u.id, "a@t.org");
+    await auth.confirmTotp(db, u.id, totpAt(secret, t0.getTime()), t0);
+    const login = await auth.login(db, { email: "a@t.org", password: PW }, new Date(t0.getTime() + 30_000));
+    expect(login.status).toBe("mfa_required");
+    const reset = await auth.requestMfaReset(db, login.token, new Date(t0.getTime() + 31_000));
+    expect(reset.email).toBe("a@t.org");
+    await auth.confirmMfaReset(db, reset.token, new Date(t0.getTime() + 32_000));
+    expect(await auth.hasMfa(db, u.id)).toBe(false);
+    expect(await auth.validateSession(db, login.token, new Date(t0.getTime() + 33_000))).toBeNull();
+    await expect(auth.confirmMfaReset(db, reset.token, new Date(t0.getTime() + 34_000))).rejects.toThrow("inválido");
+  });
+
+  it("não permite iniciar recuperação 2FA sem sessão de login pendente de MFA", async () => {
+    const { db } = await setup();
+    const login = await auth.login(db, { email: "a@t.org", password: PW });
+    await expect(auth.requestMfaReset(db, login.token)).rejects.toThrow("sessão de recuperação inválida");
+  });
+});
