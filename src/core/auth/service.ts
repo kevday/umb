@@ -128,13 +128,21 @@ export async function verifyMfa(db: Db, token: string, code: string, now = new D
 /** Troca de aplicativo autenticador: exige a senha e um código válido do aparelho atual (ou de recuperação). */
 export async function replaceTotp(db: Db, s: SessionInfo, password: string, code: string, now = new Date()) {
   const [u] = await db.select().from(users).where(eq(users.id, s.userId));
-  if (!(await verifyPassword(u.passwordHash, password))) throw new Invalid("senha incorreta");
+  if (!u || u.deletedAt || !(await verifyPassword(u.passwordHash, password))) throw new Invalid("senha incorreta");
   await throttle(db, `mfa:${s.userId}`, 10, 10 * MIN, now);
-  if (RECOVERY_RE.test(normalizeRecovery(code))) { if (!(await consumeRecoveryCode(db, s.userId, code, now))) throw new Invalid("código inválido"); }
-  else await checkCode(db, s.userId, code, now, true);
-  await db.delete(userTotp).where(eq(userTotp.userId, s.userId));
-  await clearRecoveryCodes(db, s.userId);
-  await revokeAllSessions(db, s.userId, s.sessionId, now);
+  await db.transaction(async (t) => {
+    const tx = t as unknown as Db;
+    // Consumo do fator e remoção do segredo ficam na mesma transação.
+    // O UPDATE condicional do passo TOTP serializa substituições concorrentes.
+    if (RECOVERY_RE.test(normalizeRecovery(code))) {
+      if (!(await consumeRecoveryCode(tx, s.userId, code, now))) throw new Invalid("código inválido");
+    } else {
+      await checkCode(tx, s.userId, code, now, true);
+    }
+    await tx.delete(userTotp).where(eq(userTotp.userId, s.userId));
+    await clearRecoveryCodes(tx, s.userId);
+    await revokeAllSessions(tx, s.userId, s.sessionId, now);
+  });
 }
 
 /** Novos códigos de recuperação (os anteriores deixam de valer). Exige a senha. */
