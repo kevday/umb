@@ -78,6 +78,13 @@
       "when": 1794760000000,
       "tag": "0010_performance_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794760060000,
+      "tag": "0011_ace_degree_scope",
+      "breakpoints": true
     }
   ]
 }
