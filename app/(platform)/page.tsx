@@ -18,6 +18,7 @@ export default async function Home() {
   return (
     <>
       <h1>Olá, {prof?.fullName.split(" ")[0]}</h1>
+      {offices.length > 0 && !p.session.mfaVerified && <p className="msg err" role="alert">Sua conta exerce cargo institucional e ainda não confirmou o 2FA. Ative a verificação em duas etapas em Configurações para realizar operações de autoridade.</p>}
       <div className="card">
         <strong>{prof?.fullName}</strong>
         <div className="mut">{grau(p.subject.degree)}{lodge ? ` · ${lodge.name}` : ""}{offices.length ? ` · ${offices.map((o) => o.name).join(", ")}` : ""}</div>
