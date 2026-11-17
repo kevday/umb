@@ -47,19 +47,24 @@ describe("paletas", () => {
 });
 
 describe("escolha da paleta", () => {
-  it("segue: padrão → Rito da Loja → cor própria → volta ao Rito", async () => {
+  it("prioriza Rito da Loja, depois cor pessoal e por último o padrão", async () => {
     const { db, f, A, B, r1, m1 } = await people();
     expect((await resolveTheme(db, r1)).source).toBe("padrao");
+    await setThemeColor(db, r1, "#2E8B57");
+    const ownWithoutRite = await resolveTheme(db, r1);
+    expect(ownWithoutRite.source).toBe("personal");
+    expect(ownWithoutRite.custom).toBe("#2e8b57");
     await setLodgeRite(db, B, f.lodgeId, "reaa");
     const rito = await resolveTheme(db, r1);
-    expect(rito.source).toBe("rito"); expect(rito.riteId).toBe("reaa"); expect(rito.theme.decor).toBe("#b22222");
-    await setThemeColor(db, r1, "#2E8B57");
-    const own = await resolveTheme(db, r1);
-    expect(own.source).toBe("personal"); expect(own.custom).toBe("#2e8b57");
-    expect((await resolveTheme(db, m1)).source).toBe("rito"); // outro irmão continua no Rito
+    expect(rito.source).toBe("rito");
+    expect(rito.riteId).toBe("reaa");
+    expect(rito.theme.decor).toBe("#b22222");
+    expect(rito.custom).toBe("#2e8b57"); // preferência preservada, mas não aplicada
+    expect((await resolveTheme(db, m1)).source).toBe("rito");
+    await setLodgeRite(db, A, f.lodgeId, null);
+    const fallback = await resolveTheme(db, r1);
+    expect(fallback.source).toBe("personal"); // sem Rito, volta à cor pessoal
     await setThemeColor(db, r1, null);
-    expect((await resolveTheme(db, r1)).source).toBe("rito");
-    await setLodgeRite(db, A, f.lodgeId, null); // a Potência também pode
     expect((await resolveTheme(db, r1)).source).toBe("padrao");
   });
   it("só autoridade da Loja define o Rito; tudo é auditado", async () => {

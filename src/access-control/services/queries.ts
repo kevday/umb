@@ -1,4 +1,4 @@
-import { and, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, eq, gt, inArray, isNull, lte, or, sql } from "drizzle-orm";
 import type { Db } from "@/shared/database/client";
 import {
   degreeAssignments, degreeRequests, institutionalMemberships, invitations, jurisdictions, lodges, officeAssignments, profiles,
@@ -23,10 +23,10 @@ export async function institutionOverview(db: Db, ctx: Ctx, now = new Date()) {
     const members = await db
       .select({
         userId: institutionalMemberships.userId, name: profiles.fullName, status: institutionalMemberships.status,
-        degree: sql<number>`coalesce((select max(degree) from degree_assignments d where d.user_id = ${institutionalMemberships.userId}), 0)`,
+        degree: sql<number>`coalesce((select max(d.degree) from degree_assignments d where d.user_id = ${institutionalMemberships.userId} and d.lodge_id = ${l.id}), 0)`,
       })
       .from(institutionalMemberships).innerJoin(profiles, eq(profiles.userId, institutionalMemberships.userId))
-      .where(and(eq(institutionalMemberships.lodgeId, l.id), or(isNull(institutionalMemberships.endsAt), gt(institutionalMemberships.endsAt, now))));
+      .where(and(eq(institutionalMemberships.lodgeId, l.id), lte(institutionalMemberships.startsAt, now), or(isNull(institutionalMemberships.endsAt), gt(institutionalMemberships.endsAt, now))));
     const invs = await db.select().from(invitations).where(and(eq(invitations.lodgeId, l.id), isNull(invitations.usedAt), gt(invitations.expiresAt, now)));
     const reqs = await db.select().from(degreeRequests).where(and(eq(degreeRequests.lodgeId, l.id), eq(degreeRequests.status, "pendente")));
     const offs = await db

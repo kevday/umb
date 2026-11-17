@@ -115,6 +115,7 @@ describe("2FA", () => {
     const code = totpAt(secret, t1.getTime());
     await auth.verifyMfa(db, l.token, code, t1);
     expect((await auth.validateSession(db, l.token, t1))?.mfaVerified).toBe(true);
+    expect((await auth.validateSession(db, l.token, t1))?.mfaRequired).toBe(true);
     const l2 = await auth.login(db, { email: "a@t.org", password: PW }, t1);
     await expect(auth.verifyMfa(db, l2.token, code, t1)).rejects.toThrow("código inválido");
   });
@@ -136,8 +137,8 @@ describe("tokens de e-mail", () => {
     expect(await auth.requestPasswordReset(db, "naoexiste@t.org")).toBeNull();
     const tk = (await auth.requestPasswordReset(db, "a@t.org"))!;
     await expect(auth.resetPassword(db, tk, "curta")).rejects.toThrow(Invalid);
-    const tk2 = (await auth.requestPasswordReset(db, "a@t.org"))!;
-    await auth.resetPassword(db, tk2, "nova-senha-bem-forte-9");
+    // Uma senha rejeitada não pode consumir o link; o mesmo token ainda deve funcionar.
+    await auth.resetPassword(db, tk, "nova-senha-bem-forte-9");
     expect(await auth.validateSession(db, l.token)).toBeNull();
     const l2 = await auth.login(db, { email: "a@t.org", password: "nova-senha-bem-forte-9" });
     const s2 = (await auth.validateSession(db, l2.token))!;
@@ -145,5 +146,55 @@ describe("tokens de e-mail", () => {
     await auth.changePassword(db, s2, "nova-senha-bem-forte-9", "outra-senha-ainda-melhor-3");
     expect(await auth.validateSession(db, other.token)).toBeNull();
     expect(await auth.validateSession(db, l2.token)).not.toBeNull();
+  });
+});
+
+
+describe("troca de e-mail: concorrência lógica e invalidação", () => {
+  it("uma solicitação nova invalida o link anterior e a confirmação revoga sessões", async () => {
+    const { db } = await setup();
+    const login = await auth.login(db, { email: "a@t.org", password: PW });
+    const session = (await auth.validateSession(db, login.token))!;
+    const first = await auth.requestEmailChange(db, session, PW, "primeiro@exemplo.org");
+    const second = await auth.requestEmailChange(db, session, PW, "segundo@exemplo.org");
+    await expect(auth.confirmEmailChange(db, first.token)).rejects.toThrow("inválido");
+    await auth.confirmEmailChange(db, second.token);
+    const [u] = await db.select().from(users).where(eq(users.id, session.userId));
+    expect(u.email).toBe("segundo@exemplo.org");
+    expect(await auth.validateSession(db, login.token)).toBeNull();
+  });
+});
+
+
+describe("recuperação por e-mail", () => {
+  it("reenvia confirmação sem revelar existência da conta", async () => {
+    const { db, u } = await setup();
+    await db.update(users).set({ emailVerifiedAt: null }).where(eq(users.id, u.id));
+    const token = await auth.requestEmailVerification(db, "a@t.org");
+    expect(token).toBeTruthy();
+    expect(await auth.requestEmailVerification(db, "inexistente@t.org")).toBeNull();
+    await auth.verifyEmail(db, token!);
+    expect(await auth.requestEmailVerification(db, "a@t.org")).toBeNull();
+  });
+
+  it("recupera 2FA pelo e-mail verificado, com token único e revogação de sessões", async () => {
+    const { db, u } = await setup();
+    const t0 = new Date("2026-11-16T12:00:00Z");
+    const { secret } = await auth.enrollTotp(db, u.id, "a@t.org");
+    await auth.confirmTotp(db, u.id, totpAt(secret, t0.getTime()), t0);
+    const login = await auth.login(db, { email: "a@t.org", password: PW }, new Date(t0.getTime() + 30_000));
+    expect(login.status).toBe("mfa_required");
+    const reset = await auth.requestMfaReset(db, login.token, new Date(t0.getTime() + 31_000));
+    expect(reset.email).toBe("a@t.org");
+    await auth.confirmMfaReset(db, reset.token, new Date(t0.getTime() + 32_000));
+    expect(await auth.hasMfa(db, u.id)).toBe(false);
+    expect(await auth.validateSession(db, login.token, new Date(t0.getTime() + 33_000))).toBeNull();
+    await expect(auth.confirmMfaReset(db, reset.token, new Date(t0.getTime() + 34_000))).rejects.toThrow("inválido");
+  });
+
+  it("não permite iniciar recuperação 2FA sem sessão de login pendente de MFA", async () => {
+    const { db } = await setup();
+    const login = await auth.login(db, { email: "a@t.org", password: PW });
+    await expect(auth.requestMfaReset(db, login.token)).rejects.toThrow("sessão de recuperação inválida");
   });
 });

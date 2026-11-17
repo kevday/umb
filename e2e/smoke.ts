@@ -21,8 +21,11 @@ class Browser {
       const [kv, ...attrs] = c.split(";"); const i = kv.indexOf("=");
       if (attrs.some((a) => /max-age=0|expires=thu, 01 jan 1970/i.test(a))) this.jar.delete(kv.slice(0, i)); else this.jar.set(kv.slice(0, i), kv.slice(i + 1));
     }
-    const loc = res.headers.get("location");
-    if (loc && res.status >= 300 && res.status < 400 && hops > 0) return this.go(loc.replace(BASE, ""), {}, hops - 1);
+    // Server Actions do not always emit Location: Next.js communicates redirects
+    // through x-action-redirect (url;push|replace;status). Follow both forms.
+    const actionRedirect = res.headers.get("x-action-redirect")?.split(";")[0];
+    const loc = res.headers.get("location") ?? actionRedirect;
+    if (loc && res.status >= 300 && res.status < 400 && hops > 0) return this.go(loc.startsWith("http") ? loc.replace(BASE, "") : loc, {}, hops - 1);
     return { status: res.status, url: path, html: await res.text() };
   }
   get = (p: string) => this.go(p);
@@ -72,6 +75,10 @@ async function enroll(b: Browser): Promise<string[]> {
   await vm.login("vm@teste.org", PW("VM_PASSWORD", "senha-de-teste-forte-2"));
   ok(has(await vm.get("/"), "ainda não confirmou o 2FA"), "autoridade sem 2FA vê o aviso");
   ok(has(await vm.get("/institution"), "Confirme o 2FA"), "área institucional bloqueada sem 2FA");
+  const potSettings = await pot.get("/settings");
+  if (!has(potSettings, "Ativar 2FA")) console.log("  diagnóstico /settings Potência:", potSettings.status, potSettings.url, potSettings.html.slice(0, 900));
+  const vmSettings = await vm.get("/settings");
+  if (!has(vmSettings, "Ativar 2FA")) console.log("  diagnóstico /settings Venerável:", vmSettings.status, vmSettings.url, vmSettings.html.slice(0, 900));
   const potCodes = await enroll(pot), vmCodes = await enroll(vm);
   ok(potCodes.length === 10 && vmCodes.length === 10, "2FA ativado para Potência e Venerável, com 10 códigos de recuperação cada");
 

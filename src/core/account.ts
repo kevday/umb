@@ -2,7 +2,7 @@ import { and, eq, isNull, or } from "drizzle-orm";
 import type { Db } from "@/shared/database/client";
 import {
   communityReplies, communityTopics, degreeAssignments, emailTokens, friendships, institutionalMemberships, lodges, officeAssignments,
-  profiles, reports, scrapbookPosts, sessions, userTotp, users,
+  profiles, reports, scrapbookPosts, sessions, userTotp, users, recoveryCodes,
 } from "@/shared/database/schema";
 import { appendAudit } from "@/access-control/audit/store";
 import { hashPassword, verifyPassword } from "./auth/password";
@@ -37,20 +37,26 @@ export async function deleteAccount(db: Db, me: string, password: string, now = 
   const [u] = await db.select().from(users).where(eq(users.id, me));
   if (!u || u.deletedAt) throw new NotFound("conta");
   if (!(await verifyPassword(u.passwordHash, password))) throw new Invalid("senha incorreta");
-  const offs = await db.select().from(officeAssignments).where(eq(officeAssignments.userId, me));
-  if (offs.some((o) => o.startsAt <= now && (!o.endsAt || o.endsAt > now)))
-    throw new Invalid("encerre seus cargos antes de excluir a conta (peça à autoridade competente)");
-  const [m] = await db.select({ lodgeId: institutionalMemberships.lodgeId, jurisdictionId: lodges.jurisdictionId }).from(institutionalMemberships)
-    .innerJoin(lodges, eq(lodges.id, institutionalMemberships.lodgeId))
-    .where(and(eq(institutionalMemberships.userId, me), isNull(institutionalMemberships.endsAt)));
   const dead = await hashPassword(randomToken());
   await db.transaction(async (t) => {
     const tx = t as unknown as Db;
+    // Serializa a exclusão com novas nomeações: o lock da conta é adquirido antes de
+    // consultar cargos e impede que outra transação insira uma nomeação concorrente.
+    const [locked] = await tx.select({ id: users.id, deletedAt: users.deletedAt }).from(users)
+      .where(eq(users.id, me)).for("update");
+    if (!locked || locked.deletedAt) throw new NotFound("conta");
+    const offs = await tx.select().from(officeAssignments).where(eq(officeAssignments.userId, me));
+    if (offs.some((o) => o.startsAt <= now && (!o.endsAt || o.endsAt > now)))
+      throw new Invalid("encerre seus cargos antes de excluir a conta (peça à autoridade competente)");
+    const [m] = await tx.select({ lodgeId: institutionalMemberships.lodgeId, jurisdictionId: lodges.jurisdictionId }).from(institutionalMemberships)
+      .innerJoin(lodges, eq(lodges.id, institutionalMemberships.lodgeId))
+      .where(and(eq(institutionalMemberships.userId, me), isNull(institutionalMemberships.endsAt)));
     await tx.update(users).set({ deletedAt: now, email: `removido-${me}@invalid.local`, username: `removido-${me.slice(0, 8)}`, passwordHash: dead }).where(eq(users.id, me));
     await tx.update(profiles).set({ fullName: "Membro removido", displayName: null, bio: null, visibility: {} }).where(eq(profiles.userId, me));
     await tx.update(institutionalMemberships).set({ endsAt: now }).where(and(eq(institutionalMemberships.userId, me), isNull(institutionalMemberships.endsAt)));
     await tx.delete(friendships).where(or(eq(friendships.requesterId, me), eq(friendships.addresseeId, me)));
     await tx.delete(userTotp).where(eq(userTotp.userId, me));
+    await tx.delete(recoveryCodes).where(eq(recoveryCodes.userId, me));
     await tx.delete(emailTokens).where(eq(emailTokens.userId, me));
     await tx.update(sessions).set({ revokedAt: now }).where(and(eq(sessions.userId, me), isNull(sessions.revokedAt)));
     await appendAudit(tx, { actorId: me, action: "account.deleted", subjectId: me, payload: { lodgeId: m?.lodgeId ?? null, jurisdictionId: m?.jurisdictionId ?? null } }, now);

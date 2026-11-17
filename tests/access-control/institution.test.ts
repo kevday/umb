@@ -199,3 +199,17 @@ describe("auditoria", () => {
     await expect(inst.listAudit(db, ctx(comum))).rejects.toThrow(Forbidden);
   });
 });
+
+
+describe("Grau contextualizado", () => {
+  it("um Grau registrado em outra Loja não eleva o Grau do vínculo atual", async () => {
+    const { db, f, A, member } = await world();
+    const target = await member({ name: "grau-contextual", degree: 1 });
+    const other = await inst.createLodge(db, A, { jurisdictionId: f.jurisdictionId, name: "Outra Loja" });
+    await db.insert(degreeAssignments).values({
+      userId: target, lodgeId: other.id, degree: 33,
+      requestedBy: A.userId, approvedBy: f.venerableId,
+    });
+    expect((await loadSubject(db, target))?.degree).toBe(1);
+  });
+});

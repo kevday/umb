@@ -30,6 +30,8 @@ export async function requireSession() {
 /** Sessão + sujeito do ACE; sem vínculo ativo, volta ao login. */
 export async function requirePage() {
   const session = await requireSession();
+  // Uma conta com TOTP confirmado não pode acessar nenhuma rota privada sem MFA.
+  if (session.mfaRequired && !session.mfaVerified) redirect("/login/mfa");
   const subject = await loadSubject(getDb(), session.userId);
   if (!subject) redirect("/login?e=" + encodeURIComponent("conta sem vínculo ativo"));
   if (!subject.technicalAdmin && BLOCKED.includes(subject.status))

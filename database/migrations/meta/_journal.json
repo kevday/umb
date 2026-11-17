@@ -71,6 +71,34 @@
       "when": 1794713927614,
       "tag": "0009_account_recovery",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1794760000000,
+      "tag": "0010_performance_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1794760060000,
+      "tag": "0011_ace_degree_scope",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1794760120000,
+      "tag": "0012_audit_scope_indexes",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794760180000,
+      "tag": "0013_mfa_email_recovery",
+      "breakpoints": true
     }
   ]
 }

@@ -28,6 +28,42 @@ export async function mfaAction(f: FormData) {
   redirect("/");
 }
 
+export async function mfaResetRequestAction() {
+  const token = await sessionToken();
+  if (!token) redirect("/login");
+  await throttle(getDb(), `mfa-reset:ip:${await ipOf()}`, 3, 60 * 60_000)
+    .catch((e) => back("/login/mfa", e));
+  const r = await auth.requestMfaReset(getDb(), token)
+    .catch((e) => back("/login/mfa", e));
+  const mail = await sendMailSafe(
+    r.email,
+    "Recuperação do autenticador",
+    `Foi solicitada a remoção do autenticador 2FA da sua conta. Se foi você, confirme em até 15 minutos: ${appUrl()}/login/mfa/reset?token=${r.token}. Após confirmar, entre novamente e cadastre um novo autenticador. Se não reconhece a solicitação, ignore esta mensagem.`,
+  );
+  if (!mail.ok) done("/login/mfa", mail.skipped
+    ? "O envio de e-mail não está configurado nesta instalação; contate a administração para recuperar o autenticador."
+    : "Não foi possível enviar o link de recuperação. Tente novamente mais tarde.");
+  done("/login/mfa", "Enviamos um link de recuperação ao e-mail verificado da conta. Ele expira em 15 minutos.");
+}
+
+export async function mfaResetConfirmAction(f: FormData) {
+  const token = str(f, "token");
+  await auth.confirmMfaReset(getDb(), token)
+    .catch((e) => back("/login/mfa/reset", e));
+  done("/login", "Autenticador removido. Entre novamente e cadastre um novo aplicativo autenticador.");
+}
+
+export async function resendVerificationAction(f: FormData) {
+  await throttle(getDb(), `verify-resend:${await ipOf()}`, 3, 60 * 60_000)
+    .catch((e) => back("/verify/resend", e));
+  const email = str(f, "email");
+  const token = await auth.requestEmailVerification(getDb(), email);
+  if (token) {
+    await sendMailSafe(email, "Confirme seu e-mail", `Confirme seu cadastro: ${appUrl()}/verify?token=${token}`);
+  }
+  done("/login", "Se a conta existir e ainda não estiver verificada, enviaremos uma nova mensagem.");
+}
+
 export async function registerAction(f: FormData) {
   const token = str(f, "token"), path = `/register?token=${encodeURIComponent(token)}`;
   await throttle(getDb(), `register:${await ipOf()}`, 10, 10 * 60_000).catch((e) => back(path, e));

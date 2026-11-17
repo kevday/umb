@@ -29,7 +29,7 @@ export async function world() {
     // Graus acima do inicial são dados de cenário de teste; produção usa requestDegree/decideDegree.
     for (let degree = 2; degree <= o.degree; degree++) {
       await db.insert(degreeAssignments).values({
-        userId: r.userId, degree, requestedBy: inviter.userId, approvedBy: approver.userId,
+        userId: r.userId, lodgeId, degree, requestedBy: inviter.userId, approvedBy: approver.userId,
       });
     }
     return r.userId;

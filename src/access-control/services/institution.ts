@@ -1,9 +1,9 @@
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Subject } from "@/contracts/access-control";
 import type { Db } from "@/shared/database/client";
 import {
   degreeAssignments, degreeRequests, emailTokens, institutionalMemberships, invitations, jurisdictions, lodges,
-  officeAssignments, profiles, sessions, userTotp, users,
+  accessAuditLogs, officeAssignments, profiles, sessions, userTotp, users,
 } from "@/shared/database/schema";
 import { Forbidden, Invalid, NotFound } from "@/core/errors";
 import { assertPasswordPolicy, hashPassword } from "@/core/auth/password";
@@ -13,7 +13,7 @@ import { randomToken, sha256 } from "@/core/auth/crypto";
 import { can, officeActive } from "../engine/can";
 import { canApprove, canApproveInLodge, POTENCIA, VM } from "../degrees/approval";
 import { loadSubject } from "../subject";
-import { appendAudit, readAudit } from "../audit/store";
+import { appendAudit } from "../audit/store";
 import { findRite } from "@/theme/rites";
 
 export const SEC = "Secretário";
@@ -79,7 +79,7 @@ export async function bootstrapFounders(
       const [u] = await tx.insert(users).values({ email: p.email.trim().toLowerCase(), username: p.username, passwordHash: hashes[k], emailVerifiedAt: now }).returning();
       await tx.insert(profiles).values({ userId: u.id, fullName: p.fullName });
       await tx.insert(institutionalMemberships).values({ userId: u.id, lodgeId: l.id, startsAt: now });
-      await tx.insert(degreeAssignments).values({ userId: u.id, degree: 3, origin: "bootstrap", requestedBy: u.id, approvedBy: u.id, at: now });
+      await tx.insert(degreeAssignments).values({ userId: u.id, lodgeId: l.id, degree: 3, origin: "bootstrap", requestedBy: u.id, approvedBy: u.id, at: now });
       ids.push(u.id);
     }
     await tx.insert(officeAssignments).values([
@@ -199,7 +199,7 @@ export async function registerWithInvitation(
       await tx.update(invitations).set({ usedBy: u.id }).where(eq(invitations.id, inv.id));
       await tx.insert(profiles).values({ userId: u.id, fullName: i.fullName });
       await tx.insert(institutionalMemberships).values({ userId: u.id, lodgeId: inv.lodgeId, startsAt: now });
-      await tx.insert(degreeAssignments).values({ userId: u.id, degree: inv.intendedDegree, origin: inv.createdBy === inv.approvedBy ? "potencia" : "regular", requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
+      await tx.insert(degreeAssignments).values({ userId: u.id, lodgeId: inv.lodgeId, degree: inv.intendedDegree, origin: inv.createdBy === inv.approvedBy ? "potencia" : "regular", requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
       await appendAudit(tx, { actorId: u.id, action: "member.registered", subjectId: u.id, payload: { ...scopeOf(lodge), invitationId: inv.id, degree: inv.intendedDegree } }, now);
       return u.id;
     });
@@ -243,7 +243,7 @@ export async function decideDegree(db: Db, ctx: Ctx, requestId: string, approve:
       .where(and(eq(degreeRequests.id, r.id), eq(degreeRequests.status, "pendente"))).returning();
     if (!done) throw new Invalid("solicitação já decidida");
     if (approve)
-      await tx.insert(degreeAssignments).values({ userId: r.userId, degree: r.toDegree, requestedBy: r.requestedBy, approvedBy: ctx.userId, at: now });
+      await tx.insert(degreeAssignments).values({ userId: r.userId, lodgeId: r.lodgeId, degree: r.toDegree, requestedBy: r.requestedBy, approvedBy: ctx.userId, at: now });
     await appendAudit(tx, {
       actorId: ctx.userId, action: approve ? "degree.approved" : "degree.rejected", subjectId: r.userId,
       payload: { ...scopeOf(lodge), requestId: r.id, from: r.fromDegree, to: r.toDegree, requestedBy: r.requestedBy, justification: justification ?? null },
@@ -386,9 +386,13 @@ export async function listAudit(db: Db, ctx: Ctx, now = new Date()) {
   const pot = actor.offices.filter((o) => o.name === POTENCIA && officeActive(o, now)).map((o) => o.jurisdictionId);
   const lod = actor.offices.filter((o) => [VM, SEC].includes(o.name) && officeActive(o, now)).map((o) => o.lodgeId);
   if (!pot.length && !lod.length) throw new Forbidden("sem competência para consultar a auditoria");
-  const all = await readAudit(db);
-  return all.filter((e) => {
-    const p = (e.payload ?? {}) as { lodgeId?: string; jurisdictionId?: string };
-    return (p.jurisdictionId && pot.includes(p.jurisdictionId)) || (p.lodgeId && lod.includes(p.lodgeId));
-  });
+  // Filtra no PostgreSQL: não carrega a cadeia global inteira para descartar quase todos os eventos em JS.
+  const scoped = await db.select().from(accessAuditLogs).where(or(
+    pot.length ? inArray(sql<string>`${accessAuditLogs.payload}->>'jurisdictionId'`, pot) : undefined,
+    lod.length ? inArray(sql<string>`${accessAuditLogs.payload}->>'lodgeId'`, lod) : undefined,
+  )).orderBy(asc(accessAuditLogs.seq));
+  return scoped.map((e) => ({
+    seq: e.seq, at: e.at.toISOString(), actorId: e.actorId, action: e.action,
+    subjectId: e.subjectId, payload: e.payload, prevHash: e.prevHash, hash: e.hash,
+  }));
 }

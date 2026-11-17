@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, or } from "drizzle-orm";
 import type { Db } from "@/shared/database/client";
 import { institutionalMemberships, lodges, profiles } from "@/shared/database/schema";
 import { Invalid } from "@/core/errors";
@@ -7,19 +7,32 @@ import { DEFAULT_THEME, findRite, themeForRite } from "./rites";
 
 export interface ResolvedTheme { source: "personal" | "rito" | "padrao"; label: string; riteId?: string; theme: Theme; css: string; custom?: string }
 
-/** Ordem de prioridade: cor própria do irmão, depois o Rito da Loja, depois o padrão. */
+/** Ordem: Rito da Loja; sem Rito, cor pessoal; por último, tema padrão do sistema. */
 export async function resolveTheme(db: Db, userId: string, now = new Date()): Promise<ResolvedTheme> {
   const [p] = await db.select({ c: profiles.themeColor }).from(profiles).where(eq(profiles.userId, userId));
+
+  // O Rito institucional sempre prevalece sobre a preferência pessoal.
+  const memberships = await db.select({ rite: lodges.rite }).from(institutionalMemberships)
+    .innerJoin(lodges, eq(lodges.id, institutionalMemberships.lodgeId))
+    .where(and(
+      eq(institutionalMemberships.userId, userId),
+      lte(institutionalMemberships.startsAt, now),
+      or(isNull(institutionalMemberships.endsAt), gt(institutionalMemberships.endsAt, now)),
+    ))
+    .limit(2);
+  const rite = findRite(memberships.length === 1 ? memberships[0].rite : null);
+  if (rite) {
+    const theme = themeForRite(rite.id);
+    return { source: "rito", label: rite.name, riteId: rite.id, theme, css: themeCss(theme), custom: p?.c ?? undefined };
+  }
+
+  // A cor pessoal só é aplicada quando não há Rito institucional válido.
   if (p?.c && HEX.test(p.c)) {
     const theme = buildTheme(p.c);
     return { source: "personal", label: "Cor personalizada", theme, css: themeCss(theme), custom: p.c };
   }
-  const [m] = await db.select({ rite: lodges.rite }).from(institutionalMemberships)
-    .innerJoin(lodges, eq(lodges.id, institutionalMemberships.lodgeId))
-    .where(and(eq(institutionalMemberships.userId, userId), or(isNull(institutionalMemberships.endsAt), gt(institutionalMemberships.endsAt, now)))).limit(1);
-  const rite = findRite(m?.rite);
-  if (rite) { const theme = themeForRite(rite.id); return { source: "rito", label: rite.name, riteId: rite.id, theme, css: themeCss(theme) }; }
-  return { source: "padrao", label: "Padrão", theme: DEFAULT_THEME, css: themeCss(DEFAULT_THEME) };
+
+  return { source: "padrao", label: "Padrão do sistema", theme: DEFAULT_THEME, css: themeCss(DEFAULT_THEME) };
 }
 
 

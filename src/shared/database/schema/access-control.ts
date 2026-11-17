@@ -71,6 +71,7 @@ export const degreeAssignments = pgTable(
   {
     id: uuid("id").defaultRandom().primaryKey(),
     userId: uuid("user_id").notNull().references(() => users.id),
+    lodgeId: uuid("lodge_id").references(() => lodges.id),
     degree: integer("degree").notNull(),
     origin: text("origin").notNull().default("regular"),
     requestedBy: uuid("requested_by").notNull().references(() => users.id),
