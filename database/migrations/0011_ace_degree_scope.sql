@@ -3,6 +3,10 @@ ALTER TABLE degree_assignments
   ADD COLUMN IF NOT EXISTS lodge_id uuid REFERENCES lodges(id);
 --> statement-breakpoint
 -- Backfill somente quando há exatamente um vínculo que cobria a data da progressão.
+-- O histórico é append-only na operação normal; desabilitamos o trigger apenas durante esta migração,
+-- executada pelo owner em transação, e o reabilitamos imediatamente após o backfill.
+ALTER TABLE degree_assignments DISABLE TRIGGER degrees_immutable;
+--> statement-breakpoint
 UPDATE degree_assignments d
 SET lodge_id = m.lodge_id
 FROM institutional_memberships m
@@ -17,6 +21,8 @@ WHERE m.user_id = d.user_id
       AND (x.ends_at IS NULL OR x.ends_at > d.at)
   ) = 1
   AND d.lodge_id IS NULL;
+--> statement-breakpoint
+ALTER TABLE degree_assignments ENABLE TRIGGER degrees_immutable;
 --> statement-breakpoint
 CREATE INDEX IF NOT EXISTS degree_assignments_user_lodge_degree_idx
   ON degree_assignments (user_id, lodge_id, degree DESC);
