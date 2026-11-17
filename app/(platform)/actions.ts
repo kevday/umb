@@ -86,7 +86,14 @@ export async function inviteCreate(f: FormData) {
   }, ({ r, mail }) => `${mail.ok ? "Convite criado e enviado por e-mail." : mail.skipped ? "Convite criado. O envio de e-mail não está configurado: entregue o link abaixo ao convidado." : "Convite criado, mas o e-mail não pôde ser enviado: entregue o link abaixo ao convidado."} ${r.approved ? "Já está aprovado." : "Falta a aprovação de outra autoridade."}`);
 }
 export async function inviteRevoke(f: FormData) { await run("/institution", (p, db) => inst.revokeInvitation(db, p.ctx, str(f, "id")), "Convite cancelado."); }
-export async function flashClear(f: FormData) { await clearSecretFlash(str(f, "name")); done(str(f, "path") || "/"); }
+export async function flashClear(f: FormData) {
+  await requirePage();
+  await clearSecretFlash(str(f, "name"));
+  const path = str(f, "path") || "/";
+  // Redireciona apenas para caminhos internos; rejeita URLs absolutas e protocol-relative.
+  if (!path.startsWith("/") || path.startsWith("//") || /[\\\u0000-\u001f]/.test(path)) done("/");
+  done(path);
+}
 export async function memberTotpReset(f: FormData) { await run("/institution", (p, db) => inst.resetMemberTotp(db, p.ctx, str(f, "userId"), str(f, "justification")), "2FA redefinido. O membro cadastra um novo aplicativo no próximo acesso."); }
 export async function memberEmailChange(f: FormData) {
   await run("/institution", async (p, db) => {
