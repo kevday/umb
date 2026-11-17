@@ -98,6 +98,9 @@ export async function confirmTotp(db: Db, userId: string, code: string, now = ne
   await throttle(db, `mfa:${userId}`, 10, 10 * MIN, now);
   await checkCode(db, userId, code, now, false);
   await db.update(userTotp).set({ confirmedAt: now }).where(and(eq(userTotp.userId, userId), isNull(userTotp.confirmedAt)));
+  // A ativação/reinscrição invalida a confiança MFA concedida por um autenticador anterior.
+  // A ação que conclui o cadastro marca novamente apenas a sessão atual como verificada.
+  await db.update(sessions).set({ mfaVerified: false }).where(eq(sessions.userId, userId));
   return generateRecoveryCodes(db, userId);
 }
 
