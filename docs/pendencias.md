@@ -9,7 +9,7 @@ Esta lista é um gate de liberação. A branch `master` é uma integração em v
 - [ ] **Histórico de Grau:** após aplicar `0011_ace_degree_scope`, resolver todos os registros de `degree_assignments` sem `lodge_id`. Não atribuir contexto por inferência; exigir evidência administrativa.
 - [ ] **Dupla aprovação:** a constraint permite origens `bootstrap` e `potencia`; a origem `potencia` ainda depende de autorização no serviço. Implementar validação de defesa em profundidade no banco.
 - [ ] **Exclusão de conta/LGPD:** corrigir corrida entre verificação de cargos e exclusão; definir anonimização/retenção de posts, respostas, denúncias, auditoria e históricos institucionais.
-- [ ] **Recuperação de conta:** documentar o fluxo para quem perde autenticador, códigos de recuperação e acesso ao e-mail. Hoje há códigos de recuperação e redefinição por autoridade/CLI; recuperação autônoma por e-mail para perda total ainda não está integrada.
+- [ ] **Recuperação de conta:** documentar o fluxo para quem perde autenticador, códigos de recuperação e acesso ao e-mail. Hoje há códigos de recuperação, recuperação por e-mail verificado após login com senha e redefinição por autoridade/CLI. Para perda simultânea de senha e acesso ao e-mail, manter procedimento administrativo formal.
 - [ ] **Auditoria:** avaliar contenção do advisory lock global de escrita; manter checkpoints externos/WORM, pois um administrador do banco pode alterar a cadeia e recalcular hashes.
 - [ ] **E-mail:** configurar Resend, SPF, DKIM, domínio de envio, monitoramento e política de retentativa.
 - [ ] **Rate limiting:** confiar em `x-forwarded-for` somente atrás de proxy confiável; avaliar armazenamento distribuído se houver múltiplas instâncias/volume alto.
