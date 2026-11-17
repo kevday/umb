@@ -2,6 +2,7 @@ import { and, eq, gt, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@/shared/database/client";
 import { emailTokens, sessions, userTotp, users } from "@/shared/database/schema";
 import { brand } from "@/config/brand";
+import { appendAudit } from "@/access-control/audit/store";
 import { Invalid } from "../errors";
 import { decrypt, encrypt, randomToken, sha256 } from "./crypto";
 import { assertPasswordPolicy, dummyHash, hashPassword, verifyPassword } from "./password";
@@ -155,7 +156,7 @@ export async function issueEmailToken(db: Db, userId: string, kind: "verify" | "
   return token;
 }
 
-async function consumeToken(db: Db, token: string, kind: "verify" | "reset" | "email_change", now: Date) {
+async function consumeToken(db: Db, token: string, kind: "verify" | "reset" | "email_change" | "mfa_reset", now: Date) {
   const [row] = await db.update(emailTokens).set({ usedAt: now })
     .where(and(eq(emailTokens.tokenHash, sha256(token)), eq(emailTokens.kind, kind), isNull(emailTokens.usedAt), gt(emailTokens.expiresAt, now)))
     .returning();
@@ -172,6 +173,52 @@ export async function verifyEmail(db: Db, token: string, now = new Date()) {
 export async function requestPasswordReset(db: Db, email: string, now = new Date()) {
   const [u] = await db.select().from(users).where(eq(users.email, email.trim().toLowerCase()));
   return u && !u.deletedAt ? issueEmailToken(db, u.id, "reset", now) : null;
+}
+
+/** Reenvio não enumerável: só emite token para conta existente ainda não verificada. */
+export async function requestEmailVerification(db: Db, email: string, now = new Date()) {
+  const [u] = await db.select().from(users).where(eq(users.email, email.trim().toLowerCase()));
+  return u && !u.deletedAt && !u.emailVerifiedAt ? issueEmailToken(db, u.id, "verify", now) : null;
+}
+
+/** Inicia recuperação do autenticador após senha correta e sessão pendente de MFA. */
+export async function requestMfaReset(db: Db, sessionToken: string, now = new Date()) {
+  const session = await validateSession(db, sessionToken, now);
+  if (!session || !session.mfaRequired || session.mfaVerified)
+    throw new Invalid("sessão de recuperação inválida");
+  await throttle(db, `mfa-reset:${session.userId}`, 2, 60 * MIN, now);
+  const [u] = await db.select({ id: users.id, email: users.email, verified: users.emailVerifiedAt })
+    .from(users).where(eq(users.id, session.userId));
+  if (!u || !u.verified) throw new Invalid("a conta precisa ter um e-mail verificado para recuperar o autenticador");
+
+  const token = randomToken();
+  await db.transaction(async (t) => {
+    const tx = t as unknown as Db;
+    await tx.execute(sql`select id from users where id = ${u.id} for update`);
+    await tx.update(emailTokens).set({ usedAt: now }).where(and(
+      eq(emailTokens.userId, u.id), eq(emailTokens.kind, "mfa_reset"), isNull(emailTokens.usedAt),
+    ));
+    await tx.insert(emailTokens).values({
+      userId: u.id, kind: "mfa_reset", tokenHash: sha256(token),
+      expiresAt: new Date(now.getTime() + 15 * MIN),
+    });
+  });
+  return { token, email: u.email };
+}
+
+/** Consome o link e remove TOTP, códigos e sessões na mesma transação. */
+export async function confirmMfaReset(db: Db, token: string, now = new Date()) {
+  await db.transaction(async (t) => {
+    const tx = t as unknown as Db;
+    const row = await consumeToken(tx, token, "mfa_reset", now);
+    await tx.delete(userTotp).where(eq(userTotp.userId, row.userId));
+    await clearRecoveryCodes(tx, row.userId);
+    await revokeAllSessions(tx, row.userId, undefined, now);
+    await appendAudit(tx, {
+      actorId: row.userId, action: "account.mfa_reset", subjectId: row.userId,
+      payload: { method: "verified_email_link" },
+    }, now);
+  });
 }
 
 export async function resetPassword(db: Db, token: string, newPassword: string, now = new Date()) {
