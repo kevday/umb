@@ -115,6 +115,7 @@ describe("2FA", () => {
     const code = totpAt(secret, t1.getTime());
     await auth.verifyMfa(db, l.token, code, t1);
     expect((await auth.validateSession(db, l.token, t1))?.mfaVerified).toBe(true);
+    expect((await auth.validateSession(db, l.token, t1))?.mfaRequired).toBe(true);
     const l2 = await auth.login(db, { email: "a@t.org", password: PW }, t1);
     await expect(auth.verifyMfa(db, l2.token, code, t1)).rejects.toThrow("código inválido");
   });
@@ -136,8 +137,8 @@ describe("tokens de e-mail", () => {
     expect(await auth.requestPasswordReset(db, "naoexiste@t.org")).toBeNull();
     const tk = (await auth.requestPasswordReset(db, "a@t.org"))!;
     await expect(auth.resetPassword(db, tk, "curta")).rejects.toThrow(Invalid);
-    const tk2 = (await auth.requestPasswordReset(db, "a@t.org"))!;
-    await auth.resetPassword(db, tk2, "nova-senha-bem-forte-9");
+    // Uma senha rejeitada não pode consumir o link; o mesmo token ainda deve funcionar.
+    await auth.resetPassword(db, tk, "nova-senha-bem-forte-9");
     expect(await auth.validateSession(db, l.token)).toBeNull();
     const l2 = await auth.login(db, { email: "a@t.org", password: "nova-senha-bem-forte-9" });
     const s2 = (await auth.validateSession(db, l2.token))!;
@@ -145,5 +146,21 @@ describe("tokens de e-mail", () => {
     await auth.changePassword(db, s2, "nova-senha-bem-forte-9", "outra-senha-ainda-melhor-3");
     expect(await auth.validateSession(db, other.token)).toBeNull();
     expect(await auth.validateSession(db, l2.token)).not.toBeNull();
+  });
+});
+
+
+describe("troca de e-mail: concorrência lógica e invalidação", () => {
+  it("uma solicitação nova invalida o link anterior e a confirmação revoga sessões", async () => {
+    const { db } = await setup();
+    const login = await auth.login(db, { email: "a@t.org", password: PW });
+    const session = (await auth.validateSession(db, login.token))!;
+    const first = await auth.requestEmailChange(db, session, PW, "primeiro@exemplo.org");
+    const second = await auth.requestEmailChange(db, session, PW, "segundo@exemplo.org");
+    await expect(auth.confirmEmailChange(db, first.token)).rejects.toThrow("inválido");
+    await auth.confirmEmailChange(db, second.token);
+    const [u] = await db.select().from(users).where(eq(users.id, session.userId));
+    expect(u.email).toBe("segundo@exemplo.org");
+    expect(await auth.validateSession(db, login.token)).toBeNull();
   });
 });
