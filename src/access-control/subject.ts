@@ -31,26 +31,36 @@ export async function loadSubject(db: Db, userId: string, now = new Date()): Pro
   if (memberships.length !== 1) return null;
   const m = memberships[0];
 
-  // Grau e cargos são independentes após resolver o vínculo; carregar em paralelo reduz latência.
-  const [degrees, offs] = await Promise.all([
-    db.select({ max: sql<number>`coalesce(max(${degreeAssignments.degree}), 0)` })
-      .from(degreeAssignments).where(and(eq(degreeAssignments.userId, userId), eq(degreeAssignments.lodgeId, m.lodgeId))),
-    db.select().from(officeAssignments).where(and(
-      eq(officeAssignments.userId, userId),
-      lte(officeAssignments.startsAt, now),
-      or(isNull(officeAssignments.endsAt), gt(officeAssignments.endsAt, now)),
-      or(
-        eq(officeAssignments.lodgeId, m.lodgeId),
-        eq(officeAssignments.jurisdictionId, m.jurisdictionId),
-      ),
-    )),
-  ]);
-  const d = degrees[0];
+  // Uma consulta agregada evita duas viagens sequenciais ao banco (o pool serverless usa max: 1).
+  const result = await db.execute(sql`
+    SELECT
+      COALESCE((
+        SELECT MAX(degree)::int FROM degree_assignments
+        WHERE user_id = ${userId} AND lodge_id = ${m.lodgeId}
+      ), 0)::int AS degree,
+      COALESCE((
+        SELECT jsonb_agg(jsonb_build_object(
+          'name', o.name,
+          'lodgeId', o.lodge_id,
+          'jurisdictionId', o.jurisdiction_id,
+          'startsAt', o.starts_at,
+          'endsAt', o.ends_at
+        ) ORDER BY o.starts_at)
+        FROM office_assignments o
+        WHERE o.user_id = ${userId}
+          AND o.starts_at <= ${now}
+          AND (o.ends_at IS NULL OR o.ends_at > ${now})
+          AND (o.lodge_id = ${m.lodgeId} OR o.jurisdiction_id = ${m.jurisdictionId})
+      ), '[]'::jsonb) AS offices
+  `);
+  type OfficeRow = { name: string; lodgeId: string | null; jurisdictionId: string | null; startsAt: string | Date; endsAt: string | Date | null };
+  const [context] = (result as unknown as { rows: { degree: number; offices: OfficeRow[] }[] }).rows;
+  const offs = context.offices;
 
   return {
     id: u.id,
     status: m.status,
-    degree: Number(d.max),
+    degree: Number(context.degree),
     lodgeId: m.lodgeId,
     jurisdictionId: m.jurisdictionId,
     bodyIds: [],
@@ -58,8 +68,8 @@ export async function loadSubject(db: Db, userId: string, now = new Date()): Pro
       name: o.name,
       lodgeId: o.lodgeId ?? undefined,
       jurisdictionId: o.jurisdictionId ?? undefined,
-      startsAt: o.startsAt,
-      endsAt: o.endsAt ?? undefined,
+      startsAt: new Date(o.startsAt),
+      endsAt: o.endsAt ? new Date(o.endsAt) : undefined,
     })),
   };
 }
