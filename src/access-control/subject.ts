@@ -1,7 +1,7 @@
 import { and, eq, gt, isNull, lte, or, sql } from "drizzle-orm";
 import type { Subject } from "@/contracts/access-control";
 import type { Db } from "@/shared/database/client";
-import { degreeAssignments, institutionalMemberships, lodges, officeAssignments, users } from "@/shared/database/schema";
+import { institutionalMemberships, lodges, users } from "@/shared/database/schema";
 
 /**
  * Carrega o sujeito do ACE somente quando existe exatamente um vínculo institucional
