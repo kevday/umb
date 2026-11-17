@@ -92,6 +92,13 @@
       "when": 1794760120000,
       "tag": "0012_audit_scope_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1794760180000,
+      "tag": "0013_mfa_email_recovery",
+      "breakpoints": true
     }
   ]
 }
