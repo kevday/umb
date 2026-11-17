@@ -79,7 +79,7 @@ export async function bootstrapFounders(
       const [u] = await tx.insert(users).values({ email: p.email.trim().toLowerCase(), username: p.username, passwordHash: hashes[k], emailVerifiedAt: now }).returning();
       await tx.insert(profiles).values({ userId: u.id, fullName: p.fullName });
       await tx.insert(institutionalMemberships).values({ userId: u.id, lodgeId: l.id, startsAt: now });
-      await tx.insert(degreeAssignments).values({ userId: u.id, degree: 3, origin: "bootstrap", requestedBy: u.id, approvedBy: u.id, at: now });
+      await tx.insert(degreeAssignments).values({ userId: u.id, lodgeId: l.id, degree: 3, origin: "bootstrap", requestedBy: u.id, approvedBy: u.id, at: now });
       ids.push(u.id);
     }
     await tx.insert(officeAssignments).values([
@@ -199,7 +199,7 @@ export async function registerWithInvitation(
       await tx.update(invitations).set({ usedBy: u.id }).where(eq(invitations.id, inv.id));
       await tx.insert(profiles).values({ userId: u.id, fullName: i.fullName });
       await tx.insert(institutionalMemberships).values({ userId: u.id, lodgeId: inv.lodgeId, startsAt: now });
-      await tx.insert(degreeAssignments).values({ userId: u.id, degree: inv.intendedDegree, origin: inv.createdBy === inv.approvedBy ? "potencia" : "regular", requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
+      await tx.insert(degreeAssignments).values({ userId: u.id, lodgeId: inv.lodgeId, degree: inv.intendedDegree, origin: inv.createdBy === inv.approvedBy ? "potencia" : "regular", requestedBy: inv.createdBy, approvedBy: inv.approvedBy!, at: now });
       await appendAudit(tx, { actorId: u.id, action: "member.registered", subjectId: u.id, payload: { ...scopeOf(lodge), invitationId: inv.id, degree: inv.intendedDegree } }, now);
       return u.id;
     });
@@ -243,7 +243,7 @@ export async function decideDegree(db: Db, ctx: Ctx, requestId: string, approve:
       .where(and(eq(degreeRequests.id, r.id), eq(degreeRequests.status, "pendente"))).returning();
     if (!done) throw new Invalid("solicitação já decidida");
     if (approve)
-      await tx.insert(degreeAssignments).values({ userId: r.userId, degree: r.toDegree, requestedBy: r.requestedBy, approvedBy: ctx.userId, at: now });
+      await tx.insert(degreeAssignments).values({ userId: r.userId, lodgeId: r.lodgeId, degree: r.toDegree, requestedBy: r.requestedBy, approvedBy: ctx.userId, at: now });
     await appendAudit(tx, {
       actorId: ctx.userId, action: approve ? "degree.approved" : "degree.rejected", subjectId: r.userId,
       payload: { ...scopeOf(lodge), requestId: r.id, from: r.fromDegree, to: r.toDegree, requestedBy: r.requestedBy, justification: justification ?? null },
