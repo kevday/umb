@@ -1,9 +1,9 @@
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, or, sql } from "drizzle-orm";
 import type { Subject } from "@/contracts/access-control";
 import type { Db } from "@/shared/database/client";
 import {
   degreeAssignments, degreeRequests, emailTokens, institutionalMemberships, invitations, jurisdictions, lodges,
-  officeAssignments, profiles, sessions, userTotp, users,
+  accessAuditLogs, officeAssignments, profiles, sessions, userTotp, users,
 } from "@/shared/database/schema";
 import { Forbidden, Invalid, NotFound } from "@/core/errors";
 import { assertPasswordPolicy, hashPassword } from "@/core/auth/password";
@@ -386,9 +386,13 @@ export async function listAudit(db: Db, ctx: Ctx, now = new Date()) {
   const pot = actor.offices.filter((o) => o.name === POTENCIA && officeActive(o, now)).map((o) => o.jurisdictionId);
   const lod = actor.offices.filter((o) => [VM, SEC].includes(o.name) && officeActive(o, now)).map((o) => o.lodgeId);
   if (!pot.length && !lod.length) throw new Forbidden("sem competência para consultar a auditoria");
-  const all = await readAudit(db);
-  return all.filter((e) => {
-    const p = (e.payload ?? {}) as { lodgeId?: string; jurisdictionId?: string };
-    return (p.jurisdictionId && pot.includes(p.jurisdictionId)) || (p.lodgeId && lod.includes(p.lodgeId));
-  });
+  // Filtra no PostgreSQL: não carrega a cadeia global inteira para descartar quase todos os eventos em JS.
+  const scoped = await db.select().from(accessAuditLogs).where(or(
+    pot.length ? inArray(sql<string>`${accessAuditLogs.payload}->>'jurisdictionId'`, pot) : undefined,
+    lod.length ? inArray(sql<string>`${accessAuditLogs.payload}->>'lodgeId'`, lod) : undefined,
+  )).orderBy(asc(accessAuditLogs.seq));
+  return scoped.map((e) => ({
+    seq: e.seq, at: e.at.toISOString(), actorId: e.actorId, action: e.action,
+    subjectId: e.subjectId, payload: e.payload, prevHash: e.prevHash, hash: e.hash,
+  }));
 }
