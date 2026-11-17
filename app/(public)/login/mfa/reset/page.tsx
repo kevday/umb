@@ -1,4 +1,4 @@
-import { type SP } from "@/web/ui";
+import { Flash, type SP } from "@/web/ui";
 import { mfaResetConfirmAction } from "../../../actions";
 
 export default async function MfaReset({ searchParams }: { searchParams: Promise<SP> }) {
@@ -6,6 +6,7 @@ export default async function MfaReset({ searchParams }: { searchParams: Promise
   return (
     <main className="narrow">
       <h1>Recuperar autenticador</h1>
+      <Flash s={s} />
       <p className="mut">Confirme a remoção do autenticador. O link é de uso único, expira em 15 minutos e encerra todas as sessões da conta.</p>
       <form action={mfaResetConfirmAction} className="card stack">
         <input type="hidden" name="token" value={s.token ?? ""} />
