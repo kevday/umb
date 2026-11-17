@@ -13,7 +13,7 @@ import { randomToken, sha256 } from "@/core/auth/crypto";
 import { can, officeActive } from "../engine/can";
 import { canApprove, canApproveInLodge, POTENCIA, VM } from "../degrees/approval";
 import { loadSubject } from "../subject";
-import { appendAudit, readAudit } from "../audit/store";
+import { appendAudit } from "../audit/store";
 import { findRite } from "@/theme/rites";
 
 export const SEC = "Secretário";
