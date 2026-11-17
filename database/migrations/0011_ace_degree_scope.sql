@@ -35,6 +35,7 @@ BEGIN
   ELSIF k = 'office' THEN
     RETURN EXISTS (SELECT 1 FROM office_assignments o WHERE o.user_id = u AND o.starts_at <= now() AND (o.ends_at IS NULL OR o.ends_at > now())
       AND o.name IN (SELECT jsonb_array_elements_text(r->'names'))
+      AND (o.lodge_id = lodge OR o.jurisdiction_id = jur)
       AND (r->>'lodgeId' IS NULL OR o.lodge_id::text = r->>'lodgeId')
       AND (r->>'jurisdictionId' IS NULL OR o.jurisdiction_id::text = r->>'jurisdictionId'));
   ELSIF k = 'all' THEN
