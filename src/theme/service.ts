@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, or } from "drizzle-orm";
+import { and, eq, gt, isNull, lte, or } from "drizzle-orm";
 import type { Db } from "@/shared/database/client";
 import { institutionalMemberships, lodges, profiles } from "@/shared/database/schema";
 import { Invalid } from "@/core/errors";
@@ -14,10 +14,17 @@ export async function resolveTheme(db: Db, userId: string, now = new Date()): Pr
     const theme = buildTheme(p.c);
     return { source: "personal", label: "Cor personalizada", theme, css: themeCss(theme), custom: p.c };
   }
-  const [m] = await db.select({ rite: lodges.rite }).from(institutionalMemberships)
+  // A Loja só pode definir o tema depois do início e enquanto o vínculo estiver vigente.
+  // limit(2) permite detectar inconsistência; nunca escolhemos uma Loja arbitrariamente.
+  const memberships = await db.select({ rite: lodges.rite }).from(institutionalMemberships)
     .innerJoin(lodges, eq(lodges.id, institutionalMemberships.lodgeId))
-    .where(and(eq(institutionalMemberships.userId, userId), or(isNull(institutionalMemberships.endsAt), gt(institutionalMemberships.endsAt, now)))).limit(1);
-  const rite = findRite(m?.rite);
+    .where(and(
+      eq(institutionalMemberships.userId, userId),
+      lte(institutionalMemberships.startsAt, now),
+      or(isNull(institutionalMemberships.endsAt), gt(institutionalMemberships.endsAt, now)),
+    ))
+    .limit(2);
+  const rite = findRite(memberships.length === 1 ? memberships[0].rite : null);
   if (rite) { const theme = themeForRite(rite.id); return { source: "rito", label: rite.name, riteId: rite.id, theme, css: themeCss(theme) }; }
   return { source: "padrao", label: "Padrão", theme: DEFAULT_THEME, css: themeCss(DEFAULT_THEME) };
 }
