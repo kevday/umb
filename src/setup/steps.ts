@@ -105,6 +105,9 @@ export async function doctor(db: Db, env: Record<string, string | undefined>): P
     catch (e) { add("Indicador: SET ROLE app_reader", "error", `${(e as Error).message}. Rode: GRANT app_reader TO <usuário da aplicação>;`); }
     const lp = await leastPrivilege(db);
     add("Privilégios mínimos do app_reader", lp.length === 0 ? "ok" : "error", lp.length === 0 ? "só o necessário (conferido no catálogo do banco)" : `fora do esperado: ${lp.join("; ")}`);
+    const legacyDegrees = await one<{ n: number }>(db, sql`select count(*)::int as n from degree_assignments where lodge_id is null`);
+    add("Contexto histórico de Grau", legacyDegrees.n === 0 ? "ok" : "error",
+      legacyDegrees.n === 0 ? "todos os registros associados a uma Loja" : `${legacyDegrees.n} registro(s) sem Loja; revisar o histórico antes de liberar acesso`);
     const j = await one<{ n: number }>(db, sql`select count(*)::int as n from jurisdictions`);
     add("Estrutura institucional", j.n > 0 ? "ok" : "error", j.n > 0 ? `${j.n} jurisdição(ões)` : "vazia: rode npm run setup para criar a fundação");
     const act = (name: string) => sql`select count(distinct user_id)::int as n from office_assignments where name = ${name} and starts_at <= now() and (ends_at is null or ends_at > now())`;
