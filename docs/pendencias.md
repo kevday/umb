@@ -14,7 +14,7 @@ Esta lista é um gate de liberação. A branch `master` é uma integração em v
 - [ ] **E-mail:** configurar Resend, SPF, DKIM, domínio de envio, monitoramento e política de retentativa.
 - [ ] **Rate limiting:** confiar em `x-forwarded-for` somente atrás de proxy confiável; avaliar armazenamento distribuído se houver múltiplas instâncias/volume alto.
 - [ ] **Testes:** executar CI completo, migrações sobre cópia do banco real, testes de concorrência e benchmark com PostgreSQL.
-- [ ] **Pentest:** revisão independente de autorização, RLS, autenticação, recuperação de conta e fluxos administrativos.
+- [ ] **Dependências npm:** a instalação de CI reportou 7 avisos de auditoria (5 moderados e 2 altos); analisar `npm audit` e atualizar dependências afetadas sem aplicar correções forçadas sem revisão.\n- [ ] **Pentest:** revisão independente de autorização, RLS, autenticação, recuperação de conta e fluxos administrativos.
 
 ## Bloqueantes jurídicos e operacionais
 
