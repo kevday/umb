@@ -14,7 +14,7 @@ A branch `master` foi criada a partir de `main` para preservar as funcionalidade
 
 - Senhas com Argon2id e comparação de hash fictício para reduzir diferenças de tempo na identificação de contas inexistentes.
 - Sessões revogáveis, com prazo absoluto e prazo de inatividade.
-- Validação da sessão consulta em paralelo o estado da conta e a existência de TOTP confirmado.
+- Validação da sessão consulta sessão, estado da conta e existência de TOTP confirmado em uma única consulta com JOIN.
 - Atualização de `last_used_at` limitada a uma operação por minuto, em vez de uma escrita em cada navegação.
 - A atualização de atividade usa condição SQL para não atualizar sessão revogada ou expirada após a leitura inicial.
 - Quando o usuário possui TOTP confirmado, `requirePage()` exige MFA antes de permitir qualquer página privada.
@@ -45,7 +45,7 @@ A branch `master` foi criada a partir de `main` para preservar as funcionalidade
 
 ### Autorização institucional (ACE)
 
-- O carregamento do Grau e dos cargos ocorre em paralelo depois de resolver o vínculo institucional.
+- Depois de resolver o vínculo institucional, Grau e cargos são obtidos em uma única consulta SQL agregada, evitando duas viagens adicionais ao banco (o pool serverless usa uma conexão por instância).
 - O sujeito só é carregado quando há exatamente um vínculo vigente; vínculos futuros não contam e vínculos sobrepostos negam acesso.
 - O Grau passa a ser contextualizado por Loja, evitando que um Grau registrado em outra Loja eleve as permissões do vínculo atual.
 - As funções SQL `app_can()` e `app_eval()` foram atualizadas para considerar a vigência do vínculo e o Grau da Loja correspondente.
