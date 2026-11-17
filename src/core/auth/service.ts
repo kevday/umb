@@ -39,13 +39,23 @@ export async function login(db: Db, i: { email: string; password: string; ip?: s
 }
 
 export async function validateSession(db: Db, token: string, now = new Date()): Promise<SessionInfo | null> {
-  const [s] = await db.select().from(sessions).where(eq(sessions.tokenHash, sha256(token)));
-  if (!s || s.revokedAt || s.expiresAt <= now || s.lastUsedAt.getTime() + SESSION_IDLE <= now.getTime()) return null;
-  const [[u], [totp]] = await Promise.all([
-    db.select({ d: users.deletedAt }).from(users).where(eq(users.id, s.userId)),
-    db.select({ confirmedAt: userTotp.confirmedAt }).from(userTotp).where(eq(userTotp.userId, s.userId)),
-  ]);
-  if (!u || u.d) return null;
+  // Uma única ida ao banco resolve sessão, conta e estado do TOTP.
+  const [s] = await db.select({
+    id: sessions.id,
+    userId: sessions.userId,
+    mfaVerified: sessions.mfaVerified,
+    revokedAt: sessions.revokedAt,
+    expiresAt: sessions.expiresAt,
+    lastUsedAt: sessions.lastUsedAt,
+    userDeletedAt: users.deletedAt,
+    mfaConfirmedAt: userTotp.confirmedAt,
+  }).from(sessions)
+    .innerJoin(users, eq(users.id, sessions.userId))
+    .leftJoin(userTotp, eq(userTotp.userId, sessions.userId))
+    .where(eq(sessions.tokenHash, sha256(token)))
+    .limit(1);
+  if (!s || s.revokedAt || s.userDeletedAt || s.expiresAt <= now || s.lastUsedAt.getTime() + SESSION_IDLE <= now.getTime()) return null;
+
   // Reduz escritas repetitivas; no máximo uma atualização de atividade por minuto.
   // O UPDATE condicional impede atualizar uma sessão revogada após a leitura inicial.
   const touchBefore = new Date(now.getTime() - 60_000);
@@ -54,7 +64,7 @@ export async function validateSession(db: Db, token: string, now = new Date()): 
       eq(sessions.id, s.id), isNull(sessions.revokedAt), gt(sessions.expiresAt, now), lt(sessions.lastUsedAt, touchBefore),
     ));
   }
-  return { sessionId: s.id, userId: s.userId, mfaVerified: s.mfaVerified, mfaRequired: !!totp?.confirmedAt };
+  return { sessionId: s.id, userId: s.userId, mfaVerified: s.mfaVerified, mfaRequired: !!s.mfaConfirmedAt };
 }
 
 export async function logout(db: Db, token: string, now = new Date()) {
