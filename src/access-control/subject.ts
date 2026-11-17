@@ -31,21 +31,21 @@ export async function loadSubject(db: Db, userId: string, now = new Date()): Pro
   if (memberships.length !== 1) return null;
   const m = memberships[0];
 
-  const [d] = await db
-    .select({ max: sql<number>`coalesce(max(${degreeAssignments.degree}), 0)` })
-    .from(degreeAssignments)
-    .where(eq(degreeAssignments.userId, userId));
-
-  // Cargo só integra o sujeito se estiver vigente e pertencer à Loja/Jurisdição atual.
-  const offs = await db.select().from(officeAssignments).where(and(
-    eq(officeAssignments.userId, userId),
-    lte(officeAssignments.startsAt, now),
-    or(isNull(officeAssignments.endsAt), gt(officeAssignments.endsAt, now)),
-    or(
-      eq(officeAssignments.lodgeId, m.lodgeId),
-      eq(officeAssignments.jurisdictionId, m.jurisdictionId),
-    ),
-  ));
+  // Grau e cargos são independentes após resolver o vínculo; carregar em paralelo reduz latência.
+  const [degrees, offs] = await Promise.all([
+    db.select({ max: sql<number>`coalesce(max(${degreeAssignments.degree}), 0)` })
+      .from(degreeAssignments).where(eq(degreeAssignments.userId, userId)),
+    db.select().from(officeAssignments).where(and(
+      eq(officeAssignments.userId, userId),
+      lte(officeAssignments.startsAt, now),
+      or(isNull(officeAssignments.endsAt), gt(officeAssignments.endsAt, now)),
+      or(
+        eq(officeAssignments.lodgeId, m.lodgeId),
+        eq(officeAssignments.jurisdictionId, m.jurisdictionId),
+      ),
+    )),
+  ]);
+  const d = degrees[0];
 
   return {
     id: u.id,
