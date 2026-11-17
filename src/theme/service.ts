@@ -7,15 +7,11 @@ import { DEFAULT_THEME, findRite, themeForRite } from "./rites";
 
 export interface ResolvedTheme { source: "personal" | "rito" | "padrao"; label: string; riteId?: string; theme: Theme; css: string; custom?: string }
 
-/** Ordem de prioridade: cor própria do irmão, depois o Rito da Loja, depois o padrão. */
+/** Ordem: Rito da Loja; sem Rito, cor pessoal; por último, tema padrão do sistema. */
 export async function resolveTheme(db: Db, userId: string, now = new Date()): Promise<ResolvedTheme> {
   const [p] = await db.select({ c: profiles.themeColor }).from(profiles).where(eq(profiles.userId, userId));
-  if (p?.c && HEX.test(p.c)) {
-    const theme = buildTheme(p.c);
-    return { source: "personal", label: "Cor personalizada", theme, css: themeCss(theme), custom: p.c };
-  }
-  // A Loja só pode definir o tema depois do início e enquanto o vínculo estiver vigente.
-  // limit(2) permite detectar inconsistência; nunca escolhemos uma Loja arbitrariamente.
+
+  // O Rito institucional sempre prevalece sobre a preferência pessoal.
   const memberships = await db.select({ rite: lodges.rite }).from(institutionalMemberships)
     .innerJoin(lodges, eq(lodges.id, institutionalMemberships.lodgeId))
     .where(and(
@@ -25,8 +21,18 @@ export async function resolveTheme(db: Db, userId: string, now = new Date()): Pr
     ))
     .limit(2);
   const rite = findRite(memberships.length === 1 ? memberships[0].rite : null);
-  if (rite) { const theme = themeForRite(rite.id); return { source: "rito", label: rite.name, riteId: rite.id, theme, css: themeCss(theme) }; }
-  return { source: "padrao", label: "Padrão", theme: DEFAULT_THEME, css: themeCss(DEFAULT_THEME) };
+  if (rite) {
+    const theme = themeForRite(rite.id);
+    return { source: "rito", label: rite.name, riteId: rite.id, theme, css: themeCss(theme), custom: p?.c ?? undefined };
+  }
+
+  // A cor pessoal só é aplicada quando não há Rito institucional válido.
+  if (p?.c && HEX.test(p.c)) {
+    const theme = buildTheme(p.c);
+    return { source: "personal", label: "Cor personalizada", theme, css: themeCss(theme), custom: p.c };
+  }
+
+  return { source: "padrao", label: "Padrão do sistema", theme: DEFAULT_THEME, css: themeCss(DEFAULT_THEME) };
 }
 
 
