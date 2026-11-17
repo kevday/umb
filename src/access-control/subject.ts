@@ -34,7 +34,7 @@ export async function loadSubject(db: Db, userId: string, now = new Date()): Pro
   // Grau e cargos são independentes após resolver o vínculo; carregar em paralelo reduz latência.
   const [degrees, offs] = await Promise.all([
     db.select({ max: sql<number>`coalesce(max(${degreeAssignments.degree}), 0)` })
-      .from(degreeAssignments).where(eq(degreeAssignments.userId, userId)),
+      .from(degreeAssignments).where(and(eq(degreeAssignments.userId, userId), eq(degreeAssignments.lodgeId, m.lodgeId))),
     db.select().from(officeAssignments).where(and(
       eq(officeAssignments.userId, userId),
       lte(officeAssignments.startsAt, now),
