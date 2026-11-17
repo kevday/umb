@@ -43,7 +43,7 @@ export async function mfaResetRequestAction() {
   if (!mail.ok) done("/login/mfa", mail.skipped
     ? "O envio de e-mail não está configurado nesta instalação; contate a administração para recuperar o autenticador."
     : "Não foi possível enviar o link de recuperação. Tente novamente mais tarde.");
-  done("/login/mfa", "Se a conta tiver e-mail verificado, enviaremos um link de recuperação com validade de 15 minutos.");
+  done("/login/mfa", "Enviamos um link de recuperação ao e-mail verificado da conta. Ele expira em 15 minutos.");
 }
 
 export async function mfaResetConfirmAction(f: FormData) {
