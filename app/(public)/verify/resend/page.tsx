@@ -1,8 +1,6 @@
-import { type SP } from "@/web/ui";
 import { resendVerificationAction } from "../../actions";
 
-export default async function ResendVerification({ searchParams }: { searchParams: Promise<SP> }) {
-  const s = await searchParams;
+export default async function ResendVerification() {
   return (
     <main className="narrow">
       <h1>Reenviar confirmação de e-mail</h1>
