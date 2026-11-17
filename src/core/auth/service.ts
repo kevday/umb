@@ -1,4 +1,4 @@
-import { and, eq, gt, isNull, lt, ne, or } from "drizzle-orm";
+import { and, eq, gt, isNull, lt, ne, or, sql } from "drizzle-orm";
 import type { Db } from "@/shared/database/client";
 import { emailTokens, sessions, userTotp, users } from "@/shared/database/schema";
 import { brand } from "@/config/brand";
@@ -14,15 +14,17 @@ const MIN = 60_000, DAY = 24 * 60 * MIN;
 export const SESSION_ABSOLUTE = 30 * DAY, SESSION_IDLE = 7 * DAY;
 const MAX_FAILS = 5, LOCK_MS = 15 * MIN;
 
-export interface SessionInfo { sessionId: string; userId: string; mfaVerified: boolean }
+export interface SessionInfo { sessionId: string; userId: string; mfaVerified: boolean; mfaRequired: boolean }
 
 export async function login(db: Db, i: { email: string; password: string; ip?: string; userAgent?: string }, now = new Date()) {
   const [u] = await db.select().from(users).where(eq(users.email, i.email.trim().toLowerCase()));
   const ok = await verifyPassword(u?.passwordHash ?? (await dummyHash()), i.password);
   if (!u || u.deletedAt || (u.lockedUntil && u.lockedUntil > now)) throw new Invalid(GENERIC);
   if (!ok) {
-    const n = u.failedAttempts + 1;
-    await db.update(users).set({ failedAttempts: n, lockedUntil: n >= MAX_FAILS ? new Date(now.getTime() + LOCK_MS) : u.lockedUntil }).where(eq(users.id, u.id));
+    await db.update(users).set({
+      failedAttempts: sql`${users.failedAttempts} + 1`,
+      lockedUntil: sql`case when ${users.failedAttempts} + 1 >= ${MAX_FAILS} then ${new Date(now.getTime() + LOCK_MS)} else ${users.lockedUntil} end`,
+    }).where(eq(users.id, u.id));
     throw new Invalid(GENERIC);
   }
   if (!u.emailVerifiedAt) throw new Invalid("e-mail não verificado");
@@ -39,10 +41,20 @@ export async function login(db: Db, i: { email: string; password: string; ip?: s
 export async function validateSession(db: Db, token: string, now = new Date()): Promise<SessionInfo | null> {
   const [s] = await db.select().from(sessions).where(eq(sessions.tokenHash, sha256(token)));
   if (!s || s.revokedAt || s.expiresAt <= now || s.lastUsedAt.getTime() + SESSION_IDLE <= now.getTime()) return null;
-  const [u] = await db.select({ d: users.deletedAt }).from(users).where(eq(users.id, s.userId));
+  const [[u], [totp]] = await Promise.all([
+    db.select({ d: users.deletedAt }).from(users).where(eq(users.id, s.userId)),
+    db.select({ confirmedAt: userTotp.confirmedAt }).from(userTotp).where(eq(userTotp.userId, s.userId)),
+  ]);
   if (!u || u.d) return null;
-  await db.update(sessions).set({ lastUsedAt: now }).where(eq(sessions.id, s.id));
-  return { sessionId: s.id, userId: s.userId, mfaVerified: s.mfaVerified };
+  // Reduz escritas repetitivas; no máximo uma atualização de atividade por minuto.
+  // O UPDATE condicional impede atualizar uma sessão revogada após a leitura inicial.
+  const touchBefore = new Date(now.getTime() - 60_000);
+  if (s.lastUsedAt < touchBefore) {
+    await db.update(sessions).set({ lastUsedAt: now }).where(and(
+      eq(sessions.id, s.id), isNull(sessions.revokedAt), gt(sessions.expiresAt, now), lt(sessions.lastUsedAt, touchBefore),
+    ));
+  }
+  return { sessionId: s.id, userId: s.userId, mfaVerified: s.mfaVerified, mfaRequired: !!totp?.confirmedAt };
 }
 
 export async function logout(db: Db, token: string, now = new Date()) {
@@ -150,11 +162,22 @@ export async function requestPasswordReset(db: Db, email: string, now = new Date
 }
 
 export async function resetPassword(db: Db, token: string, newPassword: string, now = new Date()) {
-  const { userId: id } = await consumeToken(db, token, "reset", now);
-  const [u] = await db.select().from(users).where(eq(users.id, id));
+  const tokenHash = sha256(token);
+  const [candidate] = await db.select({ userId: emailTokens.userId }).from(emailTokens).where(and(
+    eq(emailTokens.tokenHash, tokenHash), eq(emailTokens.kind, "reset"), isNull(emailTokens.usedAt), gt(emailTokens.expiresAt, now),
+  ));
+  if (!candidate) throw new Invalid("link inválido ou expirado");
+  const [u] = await db.select().from(users).where(eq(users.id, candidate.userId));
+  if (!u || u.deletedAt) throw new Invalid("link inválido ou expirado");
   assertPasswordPolicy(newPassword, u.email, u.username);
-  await db.update(users).set({ passwordHash: await hashPassword(newPassword), failedAttempts: 0, lockedUntil: null }).where(eq(users.id, id));
-  await revokeAllSessions(db, id, undefined, now);
+  const passwordHash = await hashPassword(newPassword);
+  await db.transaction(async (t) => {
+    const tx = t as unknown as Db;
+    const row = await consumeToken(tx, token, "reset", now);
+    if (row.userId !== candidate.userId) throw new Invalid("link inválido ou expirado");
+    await tx.update(users).set({ passwordHash, failedAttempts: 0, lockedUntil: null }).where(eq(users.id, row.userId));
+    await revokeAllSessions(tx, row.userId, undefined, now);
+  });
 }
 
 export async function changePassword(db: Db, s: SessionInfo, current: string, next: string, now = new Date()) {
@@ -178,23 +201,35 @@ export async function requestEmailChange(db: Db, s: SessionInfo, password: strin
   const [taken] = await db.select({ id: users.id }).from(users).where(eq(users.email, email));
   if (taken) throw new Invalid("este e-mail já está em uso por outra conta");
   const token = randomToken();
-  await db.insert(emailTokens).values({ userId: s.userId, kind: "email_change", tokenHash: sha256(token), newEmail: email, expiresAt: new Date(now.getTime() + 60 * MIN) });
+  await db.transaction(async (t) => {
+    const tx = t as unknown as Db;
+    await tx.execute(sql`select id from users where id = ${s.userId} for update`);
+    await tx.update(emailTokens).set({ usedAt: now }).where(and(
+      eq(emailTokens.userId, s.userId), eq(emailTokens.kind, "email_change"), isNull(emailTokens.usedAt),
+    ));
+    await tx.insert(emailTokens).values({ userId: s.userId, kind: "email_change", tokenHash: sha256(token), newEmail: email, expiresAt: new Date(now.getTime() + 60 * MIN) });
+  });
   return { token, newEmail: email, oldEmail: u.email };
 }
 
 /** Efetiva a troca ao abrir o link enviado ao novo endereço. Encerra todas as sessões. */
 export async function confirmEmailChange(db: Db, token: string, now = new Date()) {
-  const row = await consumeToken(db, token, "email_change", now);
-  if (!row.newEmail) throw new Invalid("link inválido ou expirado");
-  const [old] = await db.select({ email: users.email }).from(users).where(eq(users.id, row.userId));
-  try {
-    await db.update(users).set({ email: row.newEmail, emailVerifiedAt: now }).where(eq(users.id, row.userId));
-  } catch (e) {
-    if (/duplicate key|unique/i.test(`${(e as Error).message} ${(e as { cause?: Error }).cause?.message ?? ""}`)) throw new Invalid("este e-mail já está em uso por outra conta");
-    throw e;
-  }
-  await revokeAllSessions(db, row.userId, undefined, now);
-  return { oldEmail: old.email, newEmail: row.newEmail };
+  return db.transaction(async (t) => {
+    const tx = t as unknown as Db;
+    const row = await consumeToken(tx, token, "email_change", now);
+    if (!row.newEmail) throw new Invalid("link inválido ou expirado");
+    const [old] = await tx.select({ email: users.email }).from(users).where(eq(users.id, row.userId));
+    if (!old) throw new Invalid("link inválido ou expirado");
+    try {
+      await tx.update(users).set({ email: row.newEmail, emailVerifiedAt: now }).where(eq(users.id, row.userId));
+    } catch (e) {
+      if (/duplicate key|unique/i.test(`${(e as Error).message} ${(e as { cause?: Error }).cause?.message ?? ""}`)) throw new Invalid("este e-mail já está em uso por outra conta");
+      throw e;
+    }
+    await tx.update(emailTokens).set({ usedAt: now }).where(and(eq(emailTokens.userId, row.userId), isNull(emailTokens.usedAt)));
+    await revokeAllSessions(tx, row.userId, undefined, now);
+    return { oldEmail: old.email, newEmail: row.newEmail };
+  });
 }
 
 export { stepOf };
