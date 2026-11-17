@@ -8,27 +8,30 @@ import { institutionalMemberships, lodges, users } from "@/shared/database/schem
  * vigente. Não escolhe arbitrariamente entre vínculos sobrepostos.
  */
 export async function loadSubject(db: Db, userId: string, now = new Date()): Promise<Subject | null> {
-  const [u] = await db.select().from(users).where(eq(users.id, userId));
-  if (!u || u.deletedAt) return null;
-  if (u.isTechnicalAdmin) return { id: u.id, technicalAdmin: true, status: "regular", degree: 0, bodyIds: [], offices: [] };
-
-  const memberships = await db
-    .select({
-      lodgeId: institutionalMemberships.lodgeId,
-      status: institutionalMemberships.status,
-      jurisdictionId: lodges.jurisdictionId,
-    })
-    .from(institutionalMemberships)
-    .innerJoin(lodges, eq(lodges.id, institutionalMemberships.lodgeId))
-    .where(and(
-      eq(institutionalMemberships.userId, userId),
+  // Conta e vínculos ativos em uma ida ao banco; limit(2) detecta sobreposição sem carregar histórico.
+  const rows = await db.select({
+    id: users.id,
+    deletedAt: users.deletedAt,
+    technicalAdmin: users.isTechnicalAdmin,
+    lodgeId: institutionalMemberships.lodgeId,
+    status: institutionalMemberships.status,
+    jurisdictionId: lodges.jurisdictionId,
+  }).from(users)
+    .leftJoin(institutionalMemberships, and(
+      eq(institutionalMemberships.userId, users.id),
       lte(institutionalMemberships.startsAt, now),
       or(isNull(institutionalMemberships.endsAt), gt(institutionalMemberships.endsAt, now)),
     ))
+    .leftJoin(lodges, eq(lodges.id, institutionalMemberships.lodgeId))
+    .where(eq(users.id, userId))
     .limit(2);
+  const u = rows[0];
+  if (!u || u.deletedAt) return null;
+  if (u.technicalAdmin) return { id: u.id, technicalAdmin: true, status: "regular", degree: 0, bodyIds: [], offices: [] };
 
+  const memberships = rows.filter((r) => r.lodgeId !== null);
   // Vínculos sobrepostos são inconsistência institucional: negar acesso até saneamento.
-  if (memberships.length !== 1) return null;
+  if (memberships.length !== 1 || !memberships[0].lodgeId || !memberships[0].jurisdictionId) return null;
   const m = memberships[0];
 
   // Uma consulta agregada evita duas viagens sequenciais ao banco (o pool serverless usa max: 1).
