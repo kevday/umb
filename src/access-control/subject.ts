@@ -30,9 +30,15 @@ export async function loadSubject(db: Db, userId: string, now = new Date()): Pro
   if (u.technicalAdmin) return { id: u.id, technicalAdmin: true, status: "regular", degree: 0, bodyIds: [], offices: [] };
 
   const memberships = rows.filter((r) => r.lodgeId !== null);
+  const candidate = memberships[0];
   // Vínculos sobrepostos são inconsistência institucional: negar acesso até saneamento.
-  if (memberships.length !== 1 || !memberships[0].lodgeId || !memberships[0].jurisdictionId) return null;
-  const m = memberships[0];
+  if (memberships.length !== 1 || !candidate || candidate.lodgeId === null ||
+      candidate.jurisdictionId === null || candidate.status === null) return null;
+  const m = {
+    lodgeId: candidate.lodgeId,
+    jurisdictionId: candidate.jurisdictionId,
+    status: candidate.status,
+  };
 
   // Uma consulta agregada evita duas viagens sequenciais ao banco (o pool serverless usa max: 1).
   const result = await db.execute(sql`
