@@ -1,0 +1,44 @@
+{
+  "name": "lite",
+  "private": true,
+  "type": "module",
+  "engines": { "node": "^22.12.0 || ^24.0.0 || >=26.0.0" },
+  "scripts": {
+    "modules": "tsx scripts/gen-modules.ts",
+    "predev": "npm run modules",
+    "dev": "next dev",
+    "prebuild": "npm run modules",
+    "build": "next build",
+    "start": "next start",
+    "vercel-build": "sh scripts/vercel-build.sh",
+    "pretest": "npm run modules",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "migrate": "tsx scripts/migrate.ts",
+    "setup": "tsx scripts/setup.ts",
+    "doctor": "tsx scripts/doctor.ts",
+    "create-admin": "tsx scripts/create-admin.ts",
+    "reset-2fa": "tsx scripts/reset-2fa.ts",
+    "e2e": "tsx e2e/smoke.ts"
+  },
+  "dependencies": {
+    "@node-rs/argon2": "^2.0.2",
+    "drizzle-orm": "^0.45.2",
+    "next": "^15.5.0",
+    "nodemailer": "^7.0.0",
+    "postgres": "^3.4.0",
+    "qrcode": "^1.5.4",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.3.0",
+    "@types/node": "^22.0.0",
+    "@types/nodemailer": "^7.0.0",
+    "@types/qrcode": "^1.5.5",
+    "@types/react": "^19.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.2.0"
+  }
+}
